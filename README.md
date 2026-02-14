@@ -76,6 +76,24 @@ sqzc3d_free_chunk(chunk);
 
 All API contracts use plain integers and pointers, so this is usable from both C and C++ projects.
 
+Quickly check runtime identity:
+
+```c
+printf("sqzc3d version=%s abi=%d\n", sqzc3d_version(), sqzc3d_abi_version());
+```
+
+### 3) C++ easy entry (`sqzc3d_easy.h`)
+
+```c++
+#include "sqzc3d_easy.h"
+
+sqzc3d::ReadPointsWindow(dec, 0, 32, nullptr, 0, nullptr, &chunk);
+const auto view = sqzc3d::FrameMajorPointsView(chunk);
+```
+
+`sqzc3d_easy.h` is a lightweight C++ helper that builds common window reads with defaults and exposes
+`PointWindow` / `AnalogWindow` lightweight views plus frame-major -> point-major reorder.
+
 ---
 
 ## Data model at a glance
@@ -85,7 +103,14 @@ All API contracts use plain integers and pointers, so this is usable from both C
 - **Build**  
   `sqzc3d_build_chunks`
 - **Query**  
-  metadata APIs + label/index helpers + frame/point/channel views
+  metadata APIs + label/index helpers + frame/point/channel views, optional `type_group_*` metadata.
+- **Type groups** (if present)
+  - `n_type_groups`
+  - `type_group_names` (group labels)
+  - `type_group_starts` (`n_type_groups + 1` prefix offsets)
+  - `type_group_indices` (flat point-index list in `point_labels` order)
+- Easy-layer shape contract: points are returned as `FrameMajor PointWindow`
+  (`n_frames x n_points x 3`) with `frame_stride = n_points * 3`, `point_stride = 3`; valid mask is `[n_frames x n_points]`.
 - **Persist/load**  
   `sqzc3d_export_bundle` / `sqzc3d_load_bundle`
 
@@ -123,10 +148,11 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
 - `samples/*` provide smoke tests:
   - `bench_sqzc3d`
   - `c3dinfo_sqzc3d`
-  - `export_sqzc3d_bundle`
-  - `load_sqzc3d_bundle`
-  - `bundle_roundtrip_sqzc3d` (requires `SQZC3D_WITH_EZC3D=ON`)
-  - `verify_correctness_matrix_sqzc3d`
+- `export_sqzc3d_bundle`
+- `load_sqzc3d_bundle`
+- `bundle_roundtrip_sqzc3d` (requires `SQZC3D_WITH_EZC3D=ON`)
+- `verify_correctness_matrix_sqzc3d`
+- `easy_window_sqzc3d`
 
 ## Typical benchmark (representative, local)
 
@@ -148,10 +174,11 @@ For very large files, the dominant cost is still the raw C3D payload pass; in `O
 
 ---
 
-## Release note
+## License
 
+`Squeezed C3D (sqzc3d)` is released under **MIT**.
 `ezc3d` upstream license is **MIT**.
 
 ## License & third-party notices
 
-See `NOTICE` for ezc3d dependency notes and `DEPENDENCIES.md` for build requirements.
+See `LICENSE` and `NOTICE` for dependency/license notes, `DEPENDENCIES.md` for build requirements.

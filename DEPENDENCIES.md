@@ -15,6 +15,7 @@
 ## Distribution and notices
 - `Squeezed C3D (sqzc3d)` does not embed ezc3d source code.
 - Distributors combining with ezc3d are responsible for carrying ezc3d notices and license text.
+- `Squeezed C3D (sqzc3d)` uses MIT license (see `LICENSE`).
 
 ## See also
 - `NOTICE`

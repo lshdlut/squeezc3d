@@ -5,6 +5,7 @@
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <unordered_map>
 #include <vector>
 
 using C3dStreamReader = sqzc3d::C3dStreamReader;
@@ -249,6 +250,54 @@ static void load_labels(const C3dStreamReader* source, C3dStreamReader* out) {
   }
 }
 
+static void load_point_type_groups(const C3dStreamReader* source, C3dStreamReader* out) {
+  const auto& params = source->c3d->parameters();
+  out->type_group_names.clear();
+  out->type_group_starts.clear();
+  out->type_group_indices.clear();
+  out->type_group_starts.push_back(0);
+  if (!params.isGroup("POINT")) return;
+
+  const auto& group_point = params.group("POINT");
+  if (!group_point.isParameter("TYPE_GROUPS")) return;
+  const auto& type_groups_param = group_point.parameter("TYPE_GROUPS");
+  if (type_groups_param.type() != ezc3d::DATA_TYPE::CHAR) return;
+
+  const auto type_groups = type_groups_param.valuesAsString();
+  if (type_groups.empty()) return;
+
+  std::unordered_map<std::string, int> point_label_to_index;
+  point_label_to_index.reserve(source->point_labels.size() * 2 + 1);
+  for (int i = 0; i < static_cast<int>(source->point_labels.size()); ++i) {
+    point_label_to_index[source->point_labels[i]] = i;
+  }
+
+  for (const auto& raw_name : type_groups) {
+    const auto& gname = raw_name;
+    if (gname.empty()) continue;
+    std::vector<int> indices;
+    if (!group_point.isParameter(gname.c_str())) {
+      out->type_group_names.push_back(gname);
+      continue;
+    }
+    const auto& gparam = group_point.parameter(gname.c_str());
+    if (gparam.type() == ezc3d::DATA_TYPE::CHAR) {
+      const auto labels = gparam.valuesAsString();
+      for (const auto& label : labels) {
+        const auto it = point_label_to_index.find(label);
+        if (it != point_label_to_index.end()) {
+          indices.push_back(it->second);
+        }
+      }
+    }
+    out->type_group_names.push_back(gname);
+    for (const int idx : indices) {
+      out->type_group_indices.push_back(idx);
+    }
+    out->type_group_starts.push_back(static_cast<int>(out->type_group_indices.size()));
+  }
+}
+
 static bool read_raw_param_blob(
     C3dStreamReader* reader,
     std::int64_t data_start_bytes,
@@ -293,6 +342,9 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
   reader->c3d.reset();
   reader->point_labels.clear();
   reader->analog_labels.clear();
+  reader->type_group_names.clear();
+  reader->type_group_starts.clear();
+  reader->type_group_indices.clear();
   reader->raw_params.clear();
 
   try {
@@ -352,6 +404,7 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     reader->c3d = std::move(c3d);
     reader->meta = tmp;
     load_labels(reader, reader);
+    load_point_type_groups(reader, reader);
     return sqzc3d_STATUS_SUCCESS;
   } catch (const std::bad_alloc&) {
     reader->file.close();
@@ -374,6 +427,9 @@ void sqzc3d_c3d_stream_close(C3dStreamReader* reader) {
   reader->c3d.reset();
   reader->point_labels.clear();
   reader->analog_labels.clear();
+  reader->type_group_names.clear();
+  reader->type_group_starts.clear();
+  reader->type_group_indices.clear();
   reader->raw_params.clear();
 }
 

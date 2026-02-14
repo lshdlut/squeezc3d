@@ -29,6 +29,13 @@ extern "C" {
 #define SQZC3D_FEATURE_BUNDLE 0x8
 #define SQZC3D_FEATURE_ANALOG 0x10
 
+// Public semantic version and ABI version.
+#define SQZC3D_VERSION_MAJOR 0
+#define SQZC3D_VERSION_MINOR 2
+#define SQZC3D_VERSION_PATCH 0
+#define SQZC3D_VERSION "0.2.0"
+#define SQZC3D_ABI_VERSION 1
+
 typedef struct sqzc3d_range_t_ {
   int start;
   int count;
@@ -127,6 +134,8 @@ typedef struct sqzc3d_chunk_t_ {
   int n_points_total;
   int n_analogs;
   int n_analog_by_frame;
+  // Number of point type groups attached to this chunk.
+  int n_type_groups;
 
   int n_scalar;
   int valid_nscalar;
@@ -147,6 +156,13 @@ typedef struct sqzc3d_chunk_t_ {
   unsigned char* analog_valid;
   const char** point_labels;
   const char** analog_labels;
+  // Type group metadata (optional):
+  // - names: length n_type_groups
+  // - starts: length n_type_groups + 1, prefix offsets
+  // - indices: flattened point indices addressed by starts
+  const char** type_group_names;
+  const int* type_group_starts;
+  const int* type_group_indices;
   const char* reason;  // optional human-readable status/mismatch info owned by chunk
   const sqzc3d_byte_t* raw_params;
 
@@ -193,6 +209,10 @@ typedef struct sqzc3d_analogs_view_t_ {
 
 sqzc3d_API void sqzc3d_default_open_opt(sqzc3d_open_opt_t* out_opt);
 sqzc3d_API void sqzc3d_default_build_opt(sqzc3d_build_opt_t* out_opt);
+sqzc3d_API void sqzc3d_apply_preset_stream_frame_all(sqzc3d_build_opt_t* out_opt);
+sqzc3d_API void sqzc3d_apply_preset_stream_frame_sel(sqzc3d_build_opt_t* out_opt);
+sqzc3d_API void sqzc3d_apply_preset_window_analysis(sqzc3d_build_opt_t* out_opt);
+sqzc3d_API void sqzc3d_apply_preset_interpolation_ready(sqzc3d_build_opt_t* out_opt);
 
 sqzc3d_API int sqzc3d_open_file(
     sqzc3d_dec_t** out_dec,
@@ -262,6 +282,8 @@ sqzc3d_API int sqzc3d_export_bundle(
 
 // Feature bits indicating available capabilities in current build.
 sqzc3d_API int sqzc3d_get_features(void);
+sqzc3d_API const char* sqzc3d_version(void);
+sqzc3d_API int sqzc3d_abi_version(void);
 // Optional diagnostics for last API error.
 sqzc3d_API void sqzc3d_default_error_detail(sqzc3d_error_detail_t* out_detail);
 sqzc3d_API int sqzc3d_last_error_detail(

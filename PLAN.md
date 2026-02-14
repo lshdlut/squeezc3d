@@ -13,10 +13,12 @@ This file tracks completion state for public delivery.
 - Bundle v1/v2 compatibility for both directory and single-file layouts.
 - Strict bundle validation: schema, version, endianness, byte-size, checksum.
 - `raw_params` persistence and replay.
+- Public API versioning surface (`sqzc3d_version`, `sqzc3d_abi_version`) and version macros.
 - Diagnostics path: `sqzc3d_last_error`, `sqzc3d_last_error_detail`, status/error enums.
 - Capability introspection: `sqzc3d_get_features`.
 - CI matrix + dependency/documentation scaffolding (`.github/workflows/ci.yml`, `DEPENDENCIES.md`, `NOTICE`).
 - Local benchmark/perf noise cleanup hooks.
+- C API presets for stream/frame-window usage.
 
 ## ✅ Notable non-blocking follow-ups
 
@@ -27,5 +29,6 @@ This file tracks completion state for public delivery.
 
 - `README.md`: public usage and option documentation.
 - `docs/API.md`: interface map for integration.
+- `include/sqzc3d_easy.h` + `samples/easy_window_sqzc3d.cpp` for low-friction easy workflows.
 - CMake compatibility mapping for legacy `sqzc3d_WITH_EZC3D`.
 - Samples and smoke tooling remain available for integration checks.

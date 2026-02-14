@@ -11,8 +11,14 @@
 | --- | --- |
 | `sqzc3d_default_open_opt(sqzc3d_open_opt_t*)` | Fill `sqzc3d_open_opt_t` with safe defaults. |
 | `sqzc3d_default_build_opt(sqzc3d_build_opt_t*)` | Fill `sqzc3d_build_opt_t` with safe defaults. |
+| `sqzc3d_apply_preset_stream_frame_all(sqzc3d_build_opt_t*)` | Preset for streaming full-frame point reads. |
+| `sqzc3d_apply_preset_stream_frame_sel(sqzc3d_build_opt_t*)` | Preset for streaming with explicit user point selection. |
+| `sqzc3d_apply_preset_window_analysis(sqzc3d_build_opt_t*)` | Preset for window analysis with residual gate default. |
+| `sqzc3d_apply_preset_interpolation_ready(sqzc3d_build_opt_t*)` | Preset for interpolation-friendly window reads. |
 | `sqzc3d_default_bundle_load_opt(sqzc3d_bundle_load_opt_t*)` | Fill bundle-load options with safe defaults. |
 | `sqzc3d_default_error_detail(sqzc3d_error_detail_t*)` | Fill an error-detail struct with zeros/defaults. |
+| `sqzc3d_version()` | Return the semantic version string. |
+| `sqzc3d_abi_version()` | Return the ABI version integer. |
 
 ## Life-cycle
 
@@ -41,6 +47,22 @@
 | `sqzc3d_export_bundle` | Write `meta.json` + `data.bin` or single-file bundle. |
 | `sqzc3d_load_bundle` | Load persisted bundle into chunk. |
 | `sqzc3d_load_bundle_with_options` | Strict-load variant with strict flag. |
+
+### Type-group metadata and default layout
+
+- `chunk->type_group_names`: group names (length `chunk->n_type_groups`).
+- `chunk->type_group_starts`: prefix-sum offsets length `n_type_groups + 1`.
+- `chunk->type_group_indices`: flattened group indices; `indices[type_group_starts[i]..type_group_starts[i+1])` are the point indices for `type_group_names[i]`.
+
+In v0.x the default points layout is fixed:
+
+- `points_layout = sqzc3d_POINTS_LAYOUT_FRAME_MAJOR`
+- `points_pack = sqzc3d_POINTS_PACK_AOS_XYZ_VALID`
+- Default easy layer contracts: `PointWindow` is frame-major, AoS XYZ and `valid` is frame-major [T][K].
+  - `points_xyz_shape = [n_frames][n_points][3]` (contiguous)
+  - `points_xyz_stride = [n_points*3, 3, 1]`
+  - `points_valid_shape = [n_frames][n_points]` (contiguous)
+  - `points_valid_stride = [n_points, 1]`
 
 ## Feature and capability
 

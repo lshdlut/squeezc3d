@@ -51,6 +51,7 @@ struct sqzc3dChunk {
   int n_points_total = 0;
   int n_analogs = 0;
   int n_analog_by_frame = 0;
+  int n_type_groups = 0;
 
   int n_scalar = 0;
   int valid_nscalar = 0;
@@ -73,6 +74,10 @@ struct sqzc3dChunk {
   std::vector<std::string> analog_labels_storage;
   std::vector<const char*> point_label_ptrs;
   std::vector<const char*> analog_label_ptrs;
+  std::vector<std::string> type_group_name_storage;
+  std::vector<const char*> type_group_name_ptrs;
+  std::vector<int> type_group_starts_storage;
+  std::vector<int> type_group_indices_storage;
   std::vector<sqzc3d_byte_t> raw_params;
   std::string reason;
   int label_norm = sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM;
@@ -359,6 +364,51 @@ static bool parse_bundle_string_list(
     std::string token;
     if (!parse_quoted_string(text, pos, token)) return false;
     out_values.push_back(token);
+    skip_ws(text, pos);
+    if (pos < text.size() && text[pos] == ',') {
+      ++pos;
+      continue;
+    }
+    if (pos < text.size() && text[pos] == ']') return true;
+    return false;
+  }
+  return false;
+}
+
+static bool parse_bundle_int_list(
+    const std::string& text, const char* key, std::vector<int>& out_values) {
+  out_values.clear();
+  size_t colon_pos = 0;
+  if (!parse_json_key_colon(text, key, 0, colon_pos)) return false;
+  if (colon_pos == std::string::npos) return false;
+  size_t pos = colon_pos + 1;
+  skip_ws(text, pos);
+  if (pos >= text.size() || text[pos] != '[') return false;
+  ++pos;
+  while (pos < text.size()) {
+    skip_ws(text, pos);
+    if (pos >= text.size()) return false;
+    if (text[pos] == ']') return true;
+    size_t end = pos;
+    if (end >= text.size() ||
+        !(text[end] == '-' || text[end] == '+' || isdigit(static_cast<unsigned char>(text[end])))) {
+      return false;
+    }
+    while (
+        end < text.size() && (text[end] == '-' || text[end] == '+' || isdigit(static_cast<unsigned char>(text[end])))) {
+      ++end;
+    }
+    if (end == pos) return false;
+    try {
+      const auto value = std::stoll(text.substr(pos, end - pos));
+      if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
+        return false;
+      }
+      out_values.push_back(static_cast<int>(value));
+    } catch (...) {
+      return false;
+    }
+    pos = end;
     skip_ws(text, pos);
     if (pos < text.size() && text[pos] == ',') {
       ++pos;
@@ -879,6 +929,52 @@ sqzc3d_API void sqzc3d_default_build_opt(sqzc3d_build_opt_t* out_opt) {
   out_opt->analog_size_soft_limit_bytes = 64LL << 20;
 }
 
+sqzc3d_API void sqzc3d_apply_preset_stream_frame_all(sqzc3d_build_opt_t* out_opt) {
+  if (!out_opt) return;
+  sqzc3d_default_build_opt(out_opt);
+  out_opt->analog_enable = sqzc3d_ANALOG_EN_OFF;
+  out_opt->frame_range = {0, -1};
+  out_opt->point_sel_mode = sqzc3d_POINT_SEL_ALL;
+  out_opt->point_sel = nullptr;
+  out_opt->point_sel_count = 0;
+  out_opt->point_labels = nullptr;
+  out_opt->point_labels_count = 0;
+  out_opt->residual_gate_mm = 0.0;
+  out_opt->read_policy = sqzc3d_READ_POLICY_AUTO;
+}
+
+sqzc3d_API void sqzc3d_apply_preset_stream_frame_sel(sqzc3d_build_opt_t* out_opt) {
+  if (!out_opt) return;
+  sqzc3d_default_build_opt(out_opt);
+  out_opt->analog_enable = sqzc3d_ANALOG_EN_OFF;
+  out_opt->frame_range = {0, -1};
+  out_opt->point_sel_mode = sqzc3d_POINT_SEL_ALL;
+  out_opt->residual_gate_mm = 0.0;
+  out_opt->read_policy = sqzc3d_READ_POLICY_AUTO;
+}
+
+sqzc3d_API void sqzc3d_apply_preset_window_analysis(sqzc3d_build_opt_t* out_opt) {
+  if (!out_opt) return;
+  sqzc3d_default_build_opt(out_opt);
+  out_opt->analog_enable = sqzc3d_ANALOG_EN_AUTO;
+  out_opt->frame_range = {0, -1};
+  out_opt->point_sel_mode = sqzc3d_POINT_SEL_ALL;
+  out_opt->residual_gate_mm = 5.0;
+  out_opt->read_policy = sqzc3d_READ_POLICY_AUTO;
+  out_opt->valid_policy = sqzc3d_VALID_POLICY_FINITE_XYZ;
+}
+
+sqzc3d_API void sqzc3d_apply_preset_interpolation_ready(sqzc3d_build_opt_t* out_opt) {
+  if (!out_opt) return;
+  sqzc3d_default_build_opt(out_opt);
+  out_opt->analog_enable = sqzc3d_ANALOG_EN_OFF;
+  out_opt->frame_range = {0, -1};
+  out_opt->point_sel_mode = sqzc3d_POINT_SEL_ALL;
+  out_opt->residual_gate_mm = 5.0;
+  out_opt->read_policy = sqzc3d_READ_POLICY_AUTO;
+  out_opt->valid_policy = sqzc3d_VALID_POLICY_FINITE_XYZ;
+}
+
 sqzc3d_API void sqzc3d_default_bundle_load_opt(sqzc3d_bundle_load_opt_t* out_opt) {
   if (!out_opt) return;
   out_opt->struct_size = static_cast<int>(sizeof(*out_opt));
@@ -895,6 +991,14 @@ sqzc3d_API int sqzc3d_get_features(void) {
   features |= SQZC3D_FEATURE_ANALOG;
 #endif
   return features;
+}
+
+sqzc3d_API const char* sqzc3d_version(void) {
+  return SQZC3D_VERSION;
+}
+
+sqzc3d_API int sqzc3d_abi_version(void) {
+  return SQZC3D_ABI_VERSION;
 }
 
 sqzc3d_API void sqzc3d_default_error_detail(sqzc3d_error_detail_t* out_detail) {
@@ -1174,6 +1278,21 @@ sqzc3d_API int sqzc3d_build_chunks(
     }
   }
 
+  chunk_impl->type_group_name_storage = dec_impl->reader->type_group_names;
+  chunk_impl->type_group_starts_storage = dec_impl->reader->type_group_starts;
+  chunk_impl->type_group_indices_storage = dec_impl->reader->type_group_indices;
+  if (!chunk_impl->type_group_name_storage.empty()) {
+    chunk_impl->type_group_name_ptrs.resize(chunk_impl->type_group_name_storage.size());
+    for (std::size_t i = 0; i < chunk_impl->type_group_name_storage.size(); ++i) {
+      chunk_impl->type_group_name_ptrs[static_cast<std::size_t>(i)] = chunk_impl->type_group_name_storage[i].c_str();
+    }
+  }
+  if (!chunk_impl->type_group_starts_storage.empty() || !chunk_impl->type_group_indices_storage.empty()) {
+    chunk_impl->n_type_groups = static_cast<int>(chunk_impl->type_group_name_storage.size());
+  } else {
+    chunk_impl->n_type_groups = 0;
+  }
+
   const int n_scalar = chunk_impl->n_frames * chunk_impl->n_points * 3;
   if (n_scalar > 0) {
     chunk_impl->points_xyz_storage.resize(static_cast<std::size_t>(n_scalar));
@@ -1334,6 +1453,7 @@ sqzc3d_API int sqzc3d_build_chunks(
   chunk->n_points_total = chunk_impl->n_points_total;
   chunk->n_analogs = chunk_impl->n_analogs;
   chunk->n_analog_by_frame = chunk_impl->n_analog_by_frame;
+  chunk->n_type_groups = chunk_impl->n_type_groups;
   chunk->n_scalar = n_scalar;
   chunk->valid_nscalar = static_cast<int>(chunk_impl->points_valid_storage.size());
   chunk->n_analog_scalar = chunk_impl->n_analog_scalar;
@@ -1351,6 +1471,9 @@ sqzc3d_API int sqzc3d_build_chunks(
   chunk->analog_valid = chunk_impl->analog_valid_storage.empty() ? nullptr : chunk_impl->analog_valid_storage.data();
   chunk->point_labels = chunk_impl->point_label_ptrs.empty() ? nullptr : chunk_impl->point_label_ptrs.data();
   chunk->analog_labels = chunk_impl->analog_label_ptrs.empty() ? nullptr : chunk_impl->analog_label_ptrs.data();
+  chunk->type_group_names = chunk_impl->type_group_name_ptrs.empty() ? nullptr : chunk_impl->type_group_name_ptrs.data();
+  chunk->type_group_starts = chunk_impl->type_group_starts_storage.empty() ? nullptr : chunk_impl->type_group_starts_storage.data();
+  chunk->type_group_indices = chunk_impl->type_group_indices_storage.empty() ? nullptr : chunk_impl->type_group_indices_storage.data();
   chunk->raw_params = chunk_impl->raw_params.empty() ? nullptr : chunk_impl->raw_params.data();
   chunk->reason = chunk_impl->reason.empty() ? nullptr : chunk_impl->reason.c_str();
   chunk->impl = chunk_impl.release();
@@ -1416,6 +1539,12 @@ sqzc3d_API int sqzc3d_export_bundle(
   const auto reason = chunk->reason ? chunk->reason : "";
   const auto n_point_labels = (chunk->point_labels == nullptr ? 0 : chunk->n_points);
   const auto n_analog_labels = (chunk->analog_labels == nullptr ? 0 : chunk->n_analogs);
+  const int n_type_group_starts =
+      chunk->type_group_starts ? (chunk->n_type_groups >= 0 ? chunk->n_type_groups + 1 : 0) : 0;
+  const int n_type_group_indices = (chunk->type_group_starts && chunk->n_type_groups >= 0 &&
+                                   static_cast<int>(chunk->type_group_starts[static_cast<std::size_t>(chunk->n_type_groups)]) >= 0)
+                                      ? chunk->type_group_starts[static_cast<std::size_t>(chunk->n_type_groups)]
+                                      : 0;
 
   meta_out << "{\n";
   meta_out << "  \"format\": \"sqzc3d_bundle_v2\",\n";
@@ -1429,6 +1558,7 @@ sqzc3d_API int sqzc3d_export_bundle(
   meta_out << "  \"n_scalar\": " << chunk->n_scalar << ",\n";
   meta_out << "  \"valid_nscalar\": " << chunk->valid_nscalar << ",\n";
   meta_out << "  \"n_analog_scalar\": " << chunk->n_analog_scalar << ",\n";
+  meta_out << "  \"n_type_groups\": " << chunk->n_type_groups << ",\n";
   meta_out << "  \"raw_params_nbytes\": " << chunk->raw_params_nbytes << ",\n";
   meta_out << "  \"points_layout\": \"" << points_layout_name(chunk->points_layout) << "\",\n";
   meta_out << "  \"points_pack\": \"" << points_pack_name(chunk->points_pack) << "\",\n";
@@ -1445,6 +1575,12 @@ sqzc3d_API int sqzc3d_export_bundle(
       if (i > 0) meta_out << ", ";
       const char* v = values && values[static_cast<std::size_t>(i)] ? values[static_cast<std::size_t>(i)] : "";
       meta_out << "\"" << json_escape(v) << "\"";
+    }
+  };
+  auto write_int_list = [&](const int* values, int n_values) {
+    for (int i = 0; i < n_values; ++i) {
+      if (i > 0) meta_out << ", ";
+      meta_out << (values ? values[static_cast<std::size_t>(i)] : 0);
     }
   };
 
@@ -1524,6 +1660,15 @@ sqzc3d_API int sqzc3d_export_bundle(
   meta_out << "],\n";
   meta_out << "  \"analog_labels\": [";
   write_string_list(chunk->analog_labels, static_cast<int>(n_analog_labels));
+  meta_out << "],\n";
+  meta_out << "  \"type_group_names\": [";
+  write_string_list(chunk->type_group_names, static_cast<int>(chunk->n_type_groups));
+  meta_out << "],\n";
+  meta_out << "  \"type_group_starts\": [";
+  write_int_list(chunk->type_group_starts, n_type_group_starts);
+  meta_out << "],\n";
+  meta_out << "  \"type_group_indices\": [";
+  write_int_list(chunk->type_group_indices, n_type_group_indices);
   meta_out << "]\n";
   meta_out << "}\n";
 
@@ -1675,6 +1820,8 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   int64_t n_scalar = 0;
   int64_t valid_nscalar = 0;
   int64_t n_analog_scalar = 0;
+  int64_t n_type_groups = 0;
+  int type_group_count_v2 = 0;
   if (!parse_bundle_int_value(meta_text, "n_frames", &n_frames) ||
       !parse_bundle_int_value(meta_text, "n_points", &n_points) ||
       !parse_bundle_int_value(meta_text, "n_points_total", &n_points_total) ||
@@ -1683,6 +1830,17 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
       !parse_bundle_int_value(meta_text, "n_scalar", &n_scalar) ||
       !parse_bundle_int_value(meta_text, "valid_nscalar", &valid_nscalar) ||
       !parse_bundle_int_value(meta_text, "n_analog_scalar", &n_analog_scalar)) {
+    return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "meta integer parse failed");
+  }
+  if (is_v2) {
+    if (!parse_bundle_int_value(meta_text, "n_type_groups", &n_type_groups)) {
+      return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "meta integer parse failed");
+    }
+  } else {
+    (void)parse_bundle_optional_int_value(meta_text, "n_type_groups", type_group_count_v2, 0);
+    n_type_groups = static_cast<int64_t>(type_group_count_v2);
+  }
+  if (n_type_groups < 0) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "meta integer parse failed");
   }
 
@@ -1722,9 +1880,45 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
 
   std::vector<std::string> point_labels;
   std::vector<std::string> analog_labels;
+  std::vector<std::string> type_group_names;
+  std::vector<int> type_group_starts;
+  std::vector<int> type_group_indices;
+  const bool has_type_group_names = parse_bundle_string_list(meta_text, "type_group_names", type_group_names);
+  const bool has_type_group_starts = parse_bundle_int_list(meta_text, "type_group_starts", type_group_starts);
+  const bool has_type_group_indices = parse_bundle_int_list(meta_text, "type_group_indices", type_group_indices);
   if (!parse_bundle_string_list(meta_text, "point_labels", point_labels) ||
-      !parse_bundle_string_list(meta_text, "analog_labels", analog_labels)) {
+      !parse_bundle_string_list(meta_text, "analog_labels", analog_labels) ||
+      (is_v2 &&
+       (!has_type_group_names || !has_type_group_starts || !has_type_group_indices))) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "label list parse failed");
+  }
+  if ((has_type_group_names || has_type_group_starts || has_type_group_indices) && !is_v2 &&
+      (!has_type_group_names || !has_type_group_starts || !has_type_group_indices)) {
+    return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "label list parse failed");
+  }
+  if (static_cast<int64_t>(type_group_names.size()) != n_type_groups ||
+      (is_v2 && static_cast<int64_t>(type_group_starts.size()) != n_type_groups + 1)) {
+    if (is_v2) {
+      return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "type group metadata count mismatch");
+    }
+  }
+  if (is_v2 && !type_group_starts.empty()) {
+    if (type_group_starts[0] != 0 ||
+        type_group_starts[static_cast<std::size_t>(type_group_starts.size()) - 1] !=
+            static_cast<int>(type_group_indices.size())) {
+      return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "type group starts malformed");
+    }
+    for (std::size_t i = 1; i < type_group_starts.size(); ++i) {
+      if (type_group_starts[i] < type_group_starts[i - 1] ||
+          type_group_starts[i] > static_cast<int>(type_group_indices.size())) {
+        return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "type group starts malformed");
+      }
+    }
+  }
+  for (const int idx : type_group_indices) {
+    if (idx < 0 || idx >= n_points) {
+      return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "type group index out of bounds");
+    }
   }
 
   BundleSection points_xyz{};
@@ -1803,6 +1997,7 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
       !cast_metadata_int(n_scalar, &chunk->n_scalar) ||
       !cast_metadata_int(valid_nscalar, &chunk->valid_nscalar) ||
       !cast_metadata_int(n_analog_scalar, &chunk->n_analog_scalar) ||
+      !cast_metadata_int(n_type_groups, &chunk_impl->n_type_groups) ||
       !cast_metadata_int(valid_policy, &chunk_impl->valid_policy)) {
     delete chunk;
     return sqzc3d_STATUS_INVALID_ARGUMENT;
@@ -1940,6 +2135,9 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
     return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "raw_params checksum mismatch");
   }
 
+  chunk_impl->type_group_name_storage = std::move(type_group_names);
+  chunk_impl->type_group_starts_storage = std::move(type_group_starts);
+  chunk_impl->type_group_indices_storage = std::move(type_group_indices);
   chunk_impl->point_labels_storage = std::move(point_labels);
   chunk_impl->analog_labels_storage = std::move(analog_labels);
   chunk_impl->point_label_ptrs.resize(chunk_impl->point_labels_storage.size());
@@ -1950,7 +2148,24 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   for (std::size_t i = 0; i < chunk_impl->analog_labels_storage.size(); ++i) {
     chunk_impl->analog_label_ptrs[i] = chunk_impl->analog_labels_storage[i].c_str();
   }
+  chunk_impl->type_group_name_ptrs.resize(chunk_impl->type_group_name_storage.size());
+  for (std::size_t i = 0; i < chunk_impl->type_group_name_storage.size(); ++i) {
+    chunk_impl->type_group_name_ptrs[i] = chunk_impl->type_group_name_storage[i].c_str();
+  }
+  if (chunk_impl->type_group_starts_storage.empty() || chunk_impl->type_group_indices_storage.empty()) {
+    chunk_impl->n_type_groups = 0;
+  } else if (chunk_impl->type_group_name_storage.empty()) {
+    chunk_impl->n_type_groups = 0;
+  }
 
+  chunk->n_type_groups = chunk_impl->n_type_groups;
+  chunk->type_group_names = chunk_impl->type_group_name_ptrs.empty() ? nullptr : chunk_impl->type_group_name_ptrs.data();
+  chunk->type_group_starts = chunk_impl->type_group_starts_storage.empty()
+                                ? nullptr
+                                : chunk_impl->type_group_starts_storage.data();
+  chunk->type_group_indices = chunk_impl->type_group_indices_storage.empty()
+                                 ? nullptr
+                                 : chunk_impl->type_group_indices_storage.data();
   chunk->points_xyz = chunk_impl->points_xyz_storage.empty() ? nullptr : chunk_impl->points_xyz_storage.data();
   chunk->points_valid = chunk_impl->points_valid_storage.empty() ? nullptr : chunk_impl->points_valid_storage.data();
   chunk->analog = chunk_impl->analog_storage.empty() ? nullptr : chunk_impl->analog_storage.data();

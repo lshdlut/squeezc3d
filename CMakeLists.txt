@@ -111,6 +111,10 @@ if (NOT CMAKE_CROSSCOMPILING AND SQZC3D_BUILD_EXAMPLES)
   target_link_libraries(verify_correctness_matrix_sqzc3d PRIVATE sqzc3d)
   set_property(TARGET verify_correctness_matrix_sqzc3d PROPERTY CXX_STANDARD 17)
 
+  add_executable(easy_window_sqzc3d samples/easy_window_sqzc3d.cpp)
+  target_link_libraries(easy_window_sqzc3d PRIVATE sqzc3d)
+  set_property(TARGET easy_window_sqzc3d PROPERTY CXX_STANDARD 17)
+
   if (SQZC3D_WITH_EZC3D)
     add_executable(bundle_roundtrip_sqzc3d samples/bundle_roundtrip_sqzc3d.cpp)
     target_link_libraries(bundle_roundtrip_sqzc3d PRIVATE sqzc3d)

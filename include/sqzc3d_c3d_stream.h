@@ -54,6 +54,9 @@ struct C3dStreamReader {
   C3dStreamMeta meta{};
   std::vector<std::string> point_labels;
   std::vector<std::string> analog_labels;
+  std::vector<std::string> type_group_names;
+  std::vector<int> type_group_starts;
+  std::vector<int> type_group_indices;
   std::vector<std::uint8_t> raw_params;
 };
 
