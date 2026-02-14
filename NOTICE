@@ -1,4 +1,4 @@
-sqzc3d NOTICE
+Squeezed C3D (sqzc3d) NOTICE
 ==============
 
 This project can include the following optional third-party dependency in `ON` mode:
@@ -6,6 +6,7 @@ This project can include the following optional third-party dependency in `ON` m
 - ezc3d
   - Project: https://github.com/pyomeca/ezc3d  
   - Purpose: native C3D parsing backend for `open_file/open_memory`
+  - License: MIT
   - Upstream version/tag: configured by `SQZC3D_EZC3D_GIT_TAG`
 
 If you distribute binaries linked with `SQZC3D_WITH_EZC3D=ON`, include ezc3d notices and license text from the upstream distribution.

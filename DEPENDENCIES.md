@@ -13,7 +13,7 @@
 - When `SQZC3D_WITH_EZC3D=OFF`, this project only requires bundle APIs (no ezc3d integration at build time).
 
 ## Distribution and notices
-- `sqzc3d` does not embed ezc3d source code.
+- `Squeezed C3D (sqzc3d)` does not embed ezc3d source code.
 - Distributors combining with ezc3d are responsible for carrying ezc3d notices and license text.
 
 ## See also

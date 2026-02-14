@@ -1,4 +1,4 @@
-# sqzc3d Development Plan
+# Squeezed C3D (`sqzc3d`) Development Plan
 
 This file tracks completion state for public delivery.
 

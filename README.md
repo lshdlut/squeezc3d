@@ -1,8 +1,8 @@
-# sqzc3d
+# Squeezed C3D (`sqzc3d`)
 
 [![CI](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml/badge.svg)](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml)
 
-`sqzc3d` is a small C/C++ library for:
+`Squeezed C3D` (`sqzc3d`) is a small C/C++ library for:
 - parsing C3D point/analog data,
 - building compact chunk structures,
 - querying selected markers/channels by index/label,
@@ -12,7 +12,7 @@ It is designed as a pure dependency for higher-level projects (for example `sikc
 
 ---
 
-## Why sqzc3d
+## Why Squeezed C3D
 
 - **Small surface**: C API with a small set of stable entry points and explicit struct-size based options.
 - **Feature split**:
@@ -128,6 +128,15 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
   - `bundle_roundtrip_sqzc3d` (requires `SQZC3D_WITH_EZC3D=ON`)
   - `verify_correctness_matrix_sqzc3d`
 
+## Typical benchmark (representative, local)
+
+| Dataset | Frames | Points | `SQZC3D_WITH_EZC3D` | Source | Read method | `t_open` | `t_read_total` | Note |
+| --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- |
+| PFERD | 55844 | 132 | ON | `journal_SIK` `PFERD` C3D (118 MB) | full scan (`full points`) | 1.19 ms | 3679 ms | Throughput ~30.6 MB/s (payload only, points-level), +0.305MB RSS |
+| Louis `c3d` | 192 | 206 | ON | `journal_SIK` `louis` sample | full scan (`full points`) | - | 16.75 ms | short file, no timeout |
+
+For very large files, the dominant cost is still the raw C3D payload pass; in `OFF` mode, bundle path should be used only after one-time export/import.
+
 ---
 
 ## Documentation
@@ -138,6 +147,10 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
 - Dependencies and notices: `DEPENDENCIES.md` / `NOTICE`
 
 ---
+
+## Release note
+
+`ezc3d` upstream license is **MIT**.
 
 ## License & third-party notices
 

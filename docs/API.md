@@ -1,4 +1,4 @@
-# API Reference
+# Squeezed C3D (`sqzc3d`) API Reference
 
 ## Headers
 
