@@ -1,0 +1,290 @@
+// Minimal C3D module API (chunk-first, no object graph retention).
+#ifndef sqzc3d_H_
+#define sqzc3d_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "sqzc3d_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef _WIN32
+#if defined(sqzc3d_BUILD)
+#define sqzc3d_API __declspec(dllexport)
+#elif defined(sqzc3d_IMPORT)
+#define sqzc3d_API __declspec(dllimport)
+#else
+#define sqzc3d_API
+#endif
+#else
+#define sqzc3d_API __attribute__((visibility("default")))
+#endif
+
+#define SQZC3D_FEATURE_OPEN_FILE 0x1
+#define SQZC3D_FEATURE_OPEN_MEMORY 0x2
+#define SQZC3D_FEATURE_BUILD_CHUNKS 0x4
+#define SQZC3D_FEATURE_BUNDLE 0x8
+#define SQZC3D_FEATURE_ANALOG 0x10
+
+typedef struct sqzc3d_range_t_ {
+  int start;
+  int count;
+} sqzc3d_range_t;
+
+enum {
+  sqzc3d_FILE = 0,
+  sqzc3d_MEMORY = 1,
+};
+
+enum {
+  sqzc3d_POINT_SEL_ALL = 0,
+  sqzc3d_POINT_SEL_INDICES = 1,
+  sqzc3d_POINT_SEL_LABELS = 2,
+};
+
+enum {
+  sqzc3d_ANALOG_EN_AUTO = 0,
+  sqzc3d_ANALOG_EN_OFF = 1,
+  sqzc3d_ANALOG_EN_ON = 2,
+};
+
+enum {
+  sqzc3d_ANALOG_SEL_ALL = 0,
+  sqzc3d_ANALOG_SEL_INDICES = 1,
+  sqzc3d_ANALOG_SEL_LABELS = 2,
+};
+
+enum {
+  sqzc3d_LABEL_NORM_EXACT = 1,
+  sqzc3d_LABEL_NORM_TRIM = 2,
+  sqzc3d_LABEL_NORM_CASEFOLD_WS = 4,
+};
+
+enum {
+  sqzc3d_POINTS_LAYOUT_FRAME_MAJOR = 0,
+};
+
+enum {
+  sqzc3d_POINTS_PACK_AOS_XYZ_VALID = 0,
+};
+
+enum {
+  sqzc3d_VALID_POLICY_FINITE_XYZ = 0,
+};
+
+enum {
+  sqzc3d_READ_POLICY_AUTO = 0,
+  sqzc3d_READ_POLICY_DENSE = 1,
+  sqzc3d_READ_POLICY_SPARSE = 2,
+};
+
+typedef struct sqzc3d_open_opt_t_ {
+  int struct_size;
+  int use_ezc3d_params;
+  int preserve_raw_params;
+  int open_mode;              // sqzc3d_FILE or sqzc3d_MEMORY
+  int enable_mmap;
+  int cache_labels;
+  int label_norm;             // bitmask: sqzc3d_LABEL_NORM_*
+  int reserved;
+} sqzc3d_open_opt_t;
+
+typedef struct sqzc3d_build_opt_t_ {
+  int struct_size;
+  sqzc3d_range_t frame_range;
+
+  int point_sel_mode;
+  const int* point_sel;
+  int point_sel_count;
+  const char* const* point_labels;
+  int point_labels_count;
+
+  int analog_enable;          // sqzc3d_ANALOG_EN_*
+  sqzc3d_range_t analog_range;  // same index space as frame_range for current implementation
+  int analog_sel_mode;
+  const int* analog_sel;
+  int analog_sel_count;
+  const char* const* analog_labels;
+  int analog_labels_count;
+
+  int points_layout;
+  int points_pack;
+  int valid_policy;
+  double residual_gate_mm;
+  int read_policy;
+  double dense_threshold_ratio;
+  size_t io_buffer_bytes;
+  int64_t analog_size_soft_limit_bytes;
+} sqzc3d_build_opt_t;
+
+typedef struct sqzc3d_chunk_t_ {
+  int struct_size;
+  int n_frames;
+  int n_points;
+  int n_points_total;
+  int n_analogs;
+  int n_analog_by_frame;
+
+  int n_scalar;
+  int valid_nscalar;
+  int n_analog_scalar;
+  int raw_params_nbytes;
+
+  int points_layout;
+  int read_policy;
+  int points_pack;
+  int valid_policy;
+  double residual_gate_mm;
+  double point_scale;
+  double header_scale;
+
+  sqzc3d_num_t* points_xyz;
+  unsigned char* points_valid;
+  sqzc3d_num_t* analog;
+  unsigned char* analog_valid;
+  const char** point_labels;
+  const char** analog_labels;
+  const char* reason;  // optional human-readable status/mismatch info owned by chunk
+  const sqzc3d_byte_t* raw_params;
+
+  void* impl;
+} sqzc3d_chunk_t;
+
+typedef struct sqzc3d_dec_t_ {
+  void* impl;
+  const char* last_error;
+} sqzc3d_dec_t;
+
+typedef struct sqzc3d_error_detail_t_ {
+  int status;
+  const char* api;
+  const char* section;
+  int index;
+  const char* message;
+} sqzc3d_error_detail_t;
+
+typedef struct sqzc3d_bundle_load_opt_t_ {
+  int struct_size;
+  int strict;
+  int reserved;
+} sqzc3d_bundle_load_opt_t;
+
+typedef struct sqzc3d_points_view_t_ {
+  const sqzc3d_num_t* points_xyz;
+  const unsigned char* points_valid;
+  int n_frames;
+  int n_points;
+  int source_stride_points;   // number of points in source per frame
+  int source_point_offset;    // contiguous slice origin in source points
+  const int* point_indices;   // non-null for gather view, values are source point indices
+} sqzc3d_points_view_t;
+
+typedef struct sqzc3d_analogs_view_t_ {
+  const sqzc3d_num_t* analog;
+  int n_frames;
+  int n_analog_by_frame;
+  int n_analogs;
+  int source_n_analogs;
+  const int* channel_indices;   // non-null for gather view
+} sqzc3d_analogs_view_t;
+
+sqzc3d_API void sqzc3d_default_open_opt(sqzc3d_open_opt_t* out_opt);
+sqzc3d_API void sqzc3d_default_build_opt(sqzc3d_build_opt_t* out_opt);
+
+sqzc3d_API int sqzc3d_open_file(
+    sqzc3d_dec_t** out_dec,
+    const char* file_path,
+    const sqzc3d_open_opt_t* opt);
+sqzc3d_API int sqzc3d_open_memory(
+    sqzc3d_dec_t** out_dec,
+    const void* data,
+    int n_bytes,
+    const sqzc3d_open_opt_t* opt);
+sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec);
+sqzc3d_API const char* sqzc3d_last_error(const sqzc3d_dec_t* dec);
+
+sqzc3d_API int sqzc3d_build_chunks(
+    const sqzc3d_dec_t* dec,
+    const sqzc3d_build_opt_t* opt,
+    sqzc3d_chunk_t** out_chunk);
+sqzc3d_API int sqzc3d_free_chunk(sqzc3d_chunk_t* chunk);
+
+sqzc3d_API int sqzc3d_chunk_num_frames(const sqzc3d_chunk_t* chunk);
+sqzc3d_API int sqzc3d_chunk_num_points(const sqzc3d_chunk_t* chunk);
+sqzc3d_API int sqzc3d_chunk_num_scalar(const sqzc3d_chunk_t* chunk);
+
+sqzc3d_API int sqzc3d_point_indices_for_labels(
+    const sqzc3d_chunk_t* chunk,
+    const char** labels,
+    int n_labels,
+    int* out_indices,
+    int miss_idx);
+
+sqzc3d_API int sqzc3d_analog_indices_for_labels(
+    const sqzc3d_chunk_t* chunk,
+    const char** labels,
+    int n_labels,
+    int* out_indices,
+    int miss_idx);
+
+sqzc3d_API int sqzc3d_points_view_frames(
+    const sqzc3d_chunk_t* chunk,
+    int start,
+    int count,
+    sqzc3d_points_view_t* out_view);
+
+sqzc3d_API int sqzc3d_points_view_points(
+    const sqzc3d_chunk_t* chunk,
+    const int* point_indices,
+    int n,
+    sqzc3d_points_view_t* out_view);
+
+sqzc3d_API int sqzc3d_analogs_view_samples(
+    const sqzc3d_chunk_t* chunk,
+    int start_frame,
+    int n_frames,
+    sqzc3d_analogs_view_t* out_view);
+
+sqzc3d_API int sqzc3d_analogs_view_channels(
+    const sqzc3d_chunk_t* chunk,
+    const int* channel_indices,
+    int n,
+    sqzc3d_analogs_view_t* out_view);
+
+// Export chunk payload to a simple bundle layout:
+// <out_dir>/meta.json and <out_dir>/data.bin.
+sqzc3d_API int sqzc3d_export_bundle(
+    const char* out_dir,
+    const sqzc3d_chunk_t* chunk);
+
+// Feature bits indicating available capabilities in current build.
+sqzc3d_API int sqzc3d_get_features(void);
+// Optional diagnostics for last API error.
+sqzc3d_API void sqzc3d_default_error_detail(sqzc3d_error_detail_t* out_detail);
+sqzc3d_API int sqzc3d_last_error_detail(
+    const sqzc3d_dec_t* dec,
+    sqzc3d_error_detail_t* out_detail);
+
+// Load a bundle exported by sqzc3d_export_bundle.
+// `bundle_dir` may be either:
+// - a directory that contains meta.json + data.bin (legacy/dir format), or
+// - a single-file `.sqzc3d` / `.sqzc3d` container (v2 single-file format).
+// out_chunk may be used with existing view/query/free APIs.
+sqzc3d_API int sqzc3d_load_bundle(
+    const char* bundle_dir,
+    sqzc3d_chunk_t** out_chunk);
+sqzc3d_API void sqzc3d_default_bundle_load_opt(sqzc3d_bundle_load_opt_t* out_opt);
+sqzc3d_API int sqzc3d_load_bundle_with_options(
+    const char* bundle_dir,
+    const sqzc3d_bundle_load_opt_t* opt,
+    sqzc3d_chunk_t** out_chunk);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // sqzc3d_H_
+

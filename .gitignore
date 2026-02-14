@@ -1,0 +1,40 @@
+# Local-only artifacts
+build/
+build_*/
+out/
+dist/
+local_tools/
+
+# Build system artifacts
+.vs/
+CMakeCache.txt
+CMakeFiles/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+compile_commands.json
+
+# Common generated artifacts
+*.exp
+*.lib
+*.pdb
+*.ilk
+*.tlog
+*.dll
+*.exe
+*.obj
+
+# Local instruction files
+AGENTS.md
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*.log
+.DS_Store
+Thumbs.db
+.tmp_*
+*.tmp_*
+

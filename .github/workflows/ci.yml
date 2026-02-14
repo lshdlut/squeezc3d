@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build-${{ matrix.os }}-${{ matrix.ezc3d }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            ezc3d: ON
+            config: Release
+          - os: ubuntu-24.04
+            ezc3d: OFF
+            config: Release
+          - os: windows-latest
+            ezc3d: ON
+            config: Release
+          - os: windows-latest
+            ezc3d: OFF
+            config: Release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DSQZC3D_WITH_EZC3D=${{ matrix.ezc3d }}
+          -DSQZC3D_FETCH_EZC3D=${{ matrix.ezc3d }}
+          -DSQZC3D_BUILD_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel 2
+
+      - name: Artifact smoke
+        shell: bash
+        run: |
+          ls -la build
