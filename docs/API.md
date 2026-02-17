@@ -4,6 +4,7 @@
 
 - `include/sqzc3d.h`: public C API
 - `include/sqzc3d_types.h`: shared scalar and status types
+- `include/sqzc3d_easy.h`: lightweight C++ convenience helpers
 
 ## Initialization helpers
 
@@ -28,6 +29,15 @@
 | `sqzc3d_open_memory` | Open C3D from memory buffer. |
 | `sqzc3d_close_dec` | Release decoder handle. |
 | `sqzc3d_last_error` / `sqzc3d_last_error_detail` | Retrieve last API error text or structured detail. |
+
+Notes:
+- In `sqzc3d_open_memory`, current implementation materializes to a temporary file first, then reuses `open_file`.
+  Upstream integrations should treat this as API compatibility, not zero-copy yet.
+- `sqzc3d_last_error(NULL)` and `sqzc3d_last_error_detail(NULL, ...)` report the last error on the current thread.
+  This is useful when `sqzc3d_open_file` / `sqzc3d_open_memory` fails before returning a decoder handle.
+
+> In `SQZC3D_WITH_EZC3D=OFF`, `sqzc3d_open_file`, `sqzc3d_open_memory`, `sqzc3d_build_chunks` return
+> `sqzc3d_STATUS_NOT_IMPLEMENTED` and keep `sqzc3d_get_features()` authoritative.
 
 ## Chunk building and query
 
@@ -70,6 +80,25 @@ In v0.x the default points layout is fixed:
 | --- | --- |
 | `sqzc3d_get_features` | Read runtime availability bits. |
 
+In practice this is the first call to decide whether C3D parsing and analog APIs are enabled before invoking feature-gated paths.
+
+## Easy API
+
+Header-only helpers in `include/sqzc3d_easy.h`:
+
+- `sqzc3d::MakeFrameWindowBuildOpt` / `sqzc3d::ReadPointsWindow`
+  - Build a windowed frame-range chunk with a chosen preset.
+- `sqzc3d::ReadPointsWindowByLabels`
+  - Label-driven windowing.
+- `sqzc3d::FrameMajorPointsView`
+  - Convert chunk pointer to frame-major AoS view with `[frame][point][xyz]` shape.
+- `sqzc3d::AnalogSamplesView`
+  - Convert chunk pointer to analog view with frame-major layout.
+- `sqzc3d::PointIndicesFromTypeGroups`
+  - Convert type-group names to flat point index list.
+- `sqzc3d::ReorderFrameMajorToPointMajor`
+  - Reorder helper for consumers requiring point-major layout.
+
 ## Status and enums
 
 - Return codes are C-style ints from `sqzc3d_types.h`:
@@ -89,3 +118,4 @@ In v0.x the default points layout is fixed:
 - API is C89-compatible (`extern "C"` available for C++).
 - All non-`const` out-parameters are expected writable by caller.
 - Resources allocated by this library must be released with corresponding `free` APIs above.
+- In v0.x, there is no residual/camera-mask public payload; if needed downstream, add via request/extension.

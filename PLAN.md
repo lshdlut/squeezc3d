@@ -19,6 +19,12 @@ This file tracks completion state for public delivery.
 - CI matrix + dependency/documentation scaffolding (`.github/workflows/ci.yml`, `DEPENDENCIES.md`, `NOTICE`).
 - Local benchmark/perf noise cleanup hooks.
 - C API presets for stream/frame-window usage.
+- Easy-layer helpers are now available via `include/sqzc3d_easy.h` and `easy_window_sqzc3d`.
+- Type-group metadata exposed to callers:
+  - `n_type_groups`
+  - `type_group_names`, `type_group_starts`, `type_group_indices`
+- `README` includes direct `sqzc3d vs ezc3d` benchmark row.
+- Public docs were reviewed end-to-end (`README.md`, `docs/API.md`) and aligned to current API boundaries.
 
 ## ✅ Notable non-blocking follow-ups
 
@@ -29,6 +35,8 @@ This file tracks completion state for public delivery.
 
 - `README.md`: public usage and option documentation.
 - `docs/API.md`: interface map for integration.
-- `include/sqzc3d_easy.h` + `samples/easy_window_sqzc3d.cpp` for low-friction easy workflows.
+- `include/sqzc3d_easy.h` + `samples/tools/easy_window_sqzc3d.cpp` for low-friction easy workflows.
 - CMake compatibility mapping for legacy `sqzc3d_WITH_EZC3D`.
 - Samples and smoke tooling remain available for integration checks.
+- `sqzc3d_open_memory` behavior is now explicitly documented as temp-file based compatibility path.
+- CI/run matrix evidence and release notes should be captured before public handoff.

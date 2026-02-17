@@ -14,12 +14,75 @@ It is designed as a pure dependency for higher-level projects (for example `sikc
 
 ## Why Squeezed C3D
 
-- **Small surface**: C API with a small set of stable entry points and explicit struct-size based options.
-- **Feature split**:
-  - `SQZC3D_WITH_EZC3D=ON` (default): full C3D parsing path.
-  - `SQZC3D_WITH_EZC3D=OFF`: bundle-only path, no ezc3d dependency.
-- **Runtime-friendly**: chunk/view access avoids full object retention.
-- **Practical robustness**: selection by index or label, optional strict bundle checks, diagnostics.
+### Why Squeezed C3D (benchmark intent)
+
+Only performance-relevant signals are shown:
+
+- **Chunk materialize**: build a compact, contiguous `double` buffer `[frame][point][3]` (+ valid mask).
+- **Access patterns**: copy/extract frame & window outputs, marker-trajectory access, reorder (frame-major -> point-major).
+- **Peak memory**: avoid a full object graph; keep only needed arrays.
+
+Bench method: fully load a C3D file, then measure access patterns on each library's **native loaded representation**.
+For `sqzc3d`, the native representation is the chunk's contiguous frame-major array; for `ezc3d`, it is
+`ezc3d::c3d`'s in-memory frame/point containers. Numbers below are from the C++ sample benches (repeat=1):
+
+- `bench_sqzc3d <file.c3d> 1`
+- `bench_ezc3d <file.c3d> 1`
+
+### Load & memory (C++)
+
+| Dataset | Frames | Points | sqzc3d `load_ms` | ezc3d `load_ms` | `load_speedup_x` | sqzc3d `peak_rss_mb` | ezc3d `peak_rss_mb` | `rss_ratio_x` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| PFERD (117.96 MB) | 55,844 | 132 | 171.385 | 3,717.442 | 21.7 | 182.090 | 1,019.414 | 5.6 |
+
+`load_speedup_x = ezc3d / sqzc3d`, `rss_ratio_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`).
+
+### Access patterns (native, after load; PFERD, `T=256`)
+
+All numbers are **per-operation milliseconds** unless noted.
+
+| Metric | sqzc3d | ezc3d | `speedup_x` |
+| --- | ---: | ---: | ---: |
+| `frame_view_ns_kall` (ns/op) | 4.196 | 76.054 | 18.1x |
+| `frame_copy_ms_kall` | 0.000096 | 0.002589 | 27.0x |
+| `window_read_ms_T256_kall` | 0.009656 | 0.143652 | 14.9x |
+| `traj_strided_ms_T256_kall` | 0.075748 | 0.228896 | 3.0x |
+| `traj_strided_ms_Tfull_k1` | 0.132440 | 3.362906 | 25.4x |
+| `reorder_ms_T256_kall` | 0.132432 | 0.167740 | 1.27x |
+| `sel_apply_ms_T256_k32` | 0.005532 | 0.046642 | 8.4x |
+
+`speedup_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`).
+
+### Streaming mode (sqzc3d-only, low memory)
+
+Optional extreme low-memory mode that reads from the file on demand (e.g. WASM VFS):
+
+- `bench_sqzc3d_stream <file.c3d> 1`
+
+Example (PFERD, repeat=1):
+
+| Metric | sqzc3d stream |
+| --- | ---: |
+| `open_ms` | 1.289 |
+| `peak_rss_delta_mb` | 2.762 |
+| `read_window_ms_T256_kall` | 0.532 |
+| `read_window_ms_T256_k32` | 0.889 |
+
+### Feature profile
+
+- **Core + easy split**: stable C API (`sqzc3d.h`) plus ergonomic C++ helper layer (`sqzc3d_easy.h`).
+- **Preset-first workflow**: shared presets for common read patterns.
+- **Chunk-first runtime contracts**: frame-major point arrays + explicit valid mask.
+- **Type-group aware filtering**: `type_group_*` metadata for marker set control.
+- **Build split**: `SQZC3D_WITH_EZC3D=OFF` still supports bundle-only runtime.
+
+### New in 0.2
+
+- Preset builders for common workflows (`stream_frame_all`, `stream_frame_sel`, `window_analysis`, `interpolation_ready`).
+- Dual-layer API:
+  - **C layer** for stable runtime ABI (`sqzc3d.h`).
+  - **C++ easy layer** for ergonomic one-shot window reads (`sqzc3d_easy.h`).
+- Type-group metadata in chunk for marker-group-aware workflows.
 
 ---
 
@@ -36,12 +99,23 @@ cmake --build build --config Release --parallel
   enable/disable the C3D parser feature.
 - `SQZC3D_FETCH_EZC3D` (`ON|OFF`, default `ON`)  
   auto-fetch ezc3d when not found in the current toolchain.
-- `SQZC3D_BUILD_EXAMPLES` (`ON|OFF`, default `ON`)  
+- `SQZC3D_BUILD_EXAMPLES` (`ON|OFF`, default `OFF`)  
   build CLI samples.
 - `SQZC3D_EZC3D_GIT_REPOSITORY` / `SQZC3D_EZC3D_GIT_TAG`  
   control fetch source when `SQZC3D_FETCH_EZC3D=ON`.
 
 > Compatibility note: legacy `sqzc3d_WITH_EZC3D` is tolerated for CMake compatibility and mapped to the canonical `SQZC3D_WITH_EZC3D`.
+
+### Runtime capability matrix
+
+| Feature | ON | OFF |
+| --- | --- | --- |
+| C3D parsing (`open_file`/`open_memory`) | ✅ | ❌ |
+| Chunk build (`build_chunks`) | ✅ | ❌ |
+| Bundle export/load | ✅ | ✅ |
+| Analog support | ✅ | ✅ |
+
+Runtime availability is always queryable via `sqzc3d_get_features()`.
 
 ### CMake usage (dependency)
 
@@ -94,12 +168,18 @@ const auto view = sqzc3d::FrameMajorPointsView(chunk);
 `sqzc3d_easy.h` is a lightweight C++ helper that builds common window reads with defaults and exposes
 `PointWindow` / `AnalogWindow` lightweight views plus frame-major -> point-major reorder.
 
+### 4) Fast onboarding (selection + shape assumptions)
+
+- For one-off integration, start from C++ easy helpers (`ReadPointsWindow`, `FrameMajorPointsView`) to get a deterministic
+  `n_frames x n_points x 3` layout and explicit `[frame][point]` validity.
+- For production bindings, use the C API directly and keep `sqzc3d_points_view_*` / `sqzc3d_analogs_view_*` explicit.
+
 ---
 
 ## Data model at a glance
 
 - **Open**  
-  `sqzc3d_open_file` / `sqzc3d_open_memory`
+  `sqzc3d_open_file` / `sqzc3d_open_memory` (memory-open currently writes a temporary file before parsing)
 - **Build**  
   `sqzc3d_build_chunks`
 - **Query**  
@@ -147,21 +227,12 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
 - `sqzc3d_load_bundle_with_options` supports strict mode.
 - `samples/*` provide smoke tests:
   - `bench_sqzc3d`
+  - `bench_ezc3d`
+  - `bench_sqzc3d_stream`
   - `c3dinfo_sqzc3d`
-- `export_sqzc3d_bundle`
-- `load_sqzc3d_bundle`
-- `bundle_roundtrip_sqzc3d` (requires `SQZC3D_WITH_EZC3D=ON`)
-- `verify_correctness_matrix_sqzc3d`
-- `easy_window_sqzc3d`
-
-## Typical benchmark (representative, local)
-
-| Dataset | Frames | Points | `SQZC3D_WITH_EZC3D` | Source | Read method | `t_open` | `t_read_total` | Note |
-| --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- |
-| PFERD | 55844 | 132 | ON | `journal_SIK` `PFERD` C3D (118 MB) | full scan (`full points`) | 1.19 ms | 3679 ms | Throughput ~30.6 MB/s (payload only, points-level), +0.305MB RSS |
-| Louis `c3d` | 192 | 206 | ON | `journal_SIK` `louis` sample | full scan (`full points`) | - | 16.75 ms | short file, no timeout |
-
-For very large files, the dominant cost is still the raw C3D payload pass; in `OFF` mode, bundle path should be used only after one-time export/import.
+  - `export_sqzc3d_bundle`
+  - `verify_correctness_matrix_sqzc3d`
+  - `easy_window_sqzc3d`
 
 ---
 
