@@ -67,6 +67,17 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     bool preserve_raw_params);
 void sqzc3d_c3d_stream_close(C3dStreamReader* reader);
 
+// Map point labels to global point indices using the full C3D POINT:LABELS table.
+// Best-effort semantics: missing labels map to miss_idx.
+// norm_mode is a bitmask aligned with sqzc3d_LABEL_NORM_* (EXACT/TRIM/CASEFOLD_WS).
+sqzc3d_status sqzc3d_c3d_stream_point_indices_for_labels(
+    const C3dStreamReader* reader,
+    const char* const* labels,
+    int n_labels,
+    int* out_indices,
+    int miss_idx,
+    int norm_mode);
+
 // Read selected point xyz for one frame: layout [x0,y0,z0,x1,y1,z1,...].
 sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
     C3dStreamReader* reader,

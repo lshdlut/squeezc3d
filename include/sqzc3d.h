@@ -224,6 +224,9 @@ sqzc3d_API int sqzc3d_open_memory(
     int n_bytes,
     const sqzc3d_open_opt_t* opt);
 sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec);
+
+// Get the last error message.
+// If `dec` is NULL, returns the last error for the current thread (useful for open failures with no handle).
 sqzc3d_API const char* sqzc3d_last_error(const sqzc3d_dec_t* dec);
 
 sqzc3d_API int sqzc3d_build_chunks(
@@ -286,6 +289,7 @@ sqzc3d_API const char* sqzc3d_version(void);
 sqzc3d_API int sqzc3d_abi_version(void);
 // Optional diagnostics for last API error.
 sqzc3d_API void sqzc3d_default_error_detail(sqzc3d_error_detail_t* out_detail);
+// If `dec` is NULL, returns the last error detail for the current thread (useful for open failures with no handle).
 sqzc3d_API int sqzc3d_last_error_detail(
     const sqzc3d_dec_t* dec,
     sqzc3d_error_detail_t* out_detail);
@@ -293,7 +297,7 @@ sqzc3d_API int sqzc3d_last_error_detail(
 // Load a bundle exported by sqzc3d_export_bundle.
 // `bundle_dir` may be either:
 // - a directory that contains meta.json + data.bin (legacy/dir format), or
-// - a single-file `.sqzc3d` / `.sqzc3d` container (v2 single-file format).
+// - a single-file `.sqzc3d` / `.sqzc3D` container (v2 single-file format).
 // out_chunk may be used with existing view/query/free APIs.
 sqzc3d_API int sqzc3d_load_bundle(
     const char* bundle_dir,

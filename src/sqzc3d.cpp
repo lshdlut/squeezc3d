@@ -3,6 +3,7 @@
 #include "sqzc3d_c3d_stream.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cctype>
@@ -28,6 +29,22 @@
 namespace {
 
 using C3dStreamReader = sqzc3d::C3dStreamReader;
+
+static std::string normalize_extension(std::string ext) {
+  std::transform(ext.begin(), ext.end(), ext.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return ext;
+}
+
+static std::filesystem::path make_unique_tmp_c3d_path(const std::filesystem::path& dir) {
+  static std::atomic<std::uint64_t> seq{0};
+  const std::uint64_t now =
+      static_cast<std::uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+  const std::uint64_t id = seq.fetch_add(1, std::memory_order_relaxed);
+  std::ostringstream name;
+  name << "sqzc3d_mem_" << std::hex << now << "_" << std::dec << id << ".c3d";
+  return dir / name.str();
+}
 
 struct sqzc3dDec {
   struct ErrorDetail {
@@ -132,6 +149,29 @@ static std::string normalize_label(const std::string& s, int mode) { return norm
 static const char* kInvalidDecoderError = "invalid decoder";
 static const char* kArgError = "invalid argument";
 
+static thread_local std::string g_last_error;
+static thread_local sqzc3dDec::ErrorDetail g_last_error_detail;
+
+static void reset_global_error() {
+  g_last_error.clear();
+  g_last_error_detail = {};
+  g_last_error_detail.status = sqzc3d_STATUS_SUCCESS;
+}
+
+static void set_global_error(
+    int status,
+    const std::string& message,
+    const char* api = nullptr,
+    const char* section = nullptr,
+    int index = -1) {
+  g_last_error = message;
+  g_last_error_detail.status = status;
+  g_last_error_detail.api = api ? api : "";
+  g_last_error_detail.section = section ? section : "";
+  g_last_error_detail.index = index;
+  g_last_error_detail.message = message;
+}
+
 static std::string json_escape(const std::string& text) {
   std::string out;
   out.reserve(text.size() + 16);
@@ -159,7 +199,14 @@ static std::string json_escape(const std::string& text) {
         out += "\\t";
         break;
       default:
-        out.push_back(static_cast<char>(ch));
+        if (ch < 0x20) {
+          static constexpr char kHex[] = "0123456789abcdef";
+          out += "\\u00";
+          out.push_back(kHex[(ch >> 4) & 0x0f]);
+          out.push_back(kHex[ch & 0x0f]);
+        } else {
+          out.push_back(static_cast<char>(ch));
+        }
         break;
     }
   }
@@ -612,14 +659,32 @@ static bool write_sic_bundle_magic(std::ostream& out) {
 }
 
 static std::size_t write_little_u64(std::ostream& out, std::uint64_t value) {
-  out.write(reinterpret_cast<const char*>(&value), sizeof(value));
-  return out.good() ? sizeof(value) : 0u;
+  unsigned char buf[8]{};
+  buf[0] = static_cast<unsigned char>((value >> 0) & 0xffu);
+  buf[1] = static_cast<unsigned char>((value >> 8) & 0xffu);
+  buf[2] = static_cast<unsigned char>((value >> 16) & 0xffu);
+  buf[3] = static_cast<unsigned char>((value >> 24) & 0xffu);
+  buf[4] = static_cast<unsigned char>((value >> 32) & 0xffu);
+  buf[5] = static_cast<unsigned char>((value >> 40) & 0xffu);
+  buf[6] = static_cast<unsigned char>((value >> 48) & 0xffu);
+  buf[7] = static_cast<unsigned char>((value >> 56) & 0xffu);
+  out.write(reinterpret_cast<const char*>(buf), sizeof(buf));
+  return out.good() ? sizeof(buf) : 0u;
 }
 
 static bool read_little_u64(std::istream& in, std::uint64_t* out) {
   if (!out) return false;
-  in.read(reinterpret_cast<char*>(out), sizeof(*out));
-  return in.good();
+  unsigned char buf[8]{};
+  if (!in.read(reinterpret_cast<char*>(buf), sizeof(buf))) return false;
+  *out = (static_cast<std::uint64_t>(buf[0]) << 0) |
+         (static_cast<std::uint64_t>(buf[1]) << 8) |
+         (static_cast<std::uint64_t>(buf[2]) << 16) |
+         (static_cast<std::uint64_t>(buf[3]) << 24) |
+         (static_cast<std::uint64_t>(buf[4]) << 32) |
+         (static_cast<std::uint64_t>(buf[5]) << 40) |
+         (static_cast<std::uint64_t>(buf[6]) << 48) |
+         (static_cast<std::uint64_t>(buf[7]) << 56);
+  return true;
 }
 
 static bool write_u64_le(std::ostream& out, std::uint64_t value) {
@@ -721,15 +786,16 @@ static bool read_section_data(
 
 static void set_error(
     sqzc3d_dec_t* dec,
+    int status,
     const std::string& message,
     const char* api = nullptr,
     const char* section = nullptr,
     int index = -1) {
-  if (!dec) return;
+  set_global_error(status, message, api, section, index);
+  if (!dec || !dec->impl) return;
   auto* impl = static_cast<sqzc3dDec*>(dec->impl);
-  if (!impl) return;
   impl->last_error = message;
-  impl->last_error_detail.status = sqzc3d_STATUS_INVALID_ARGUMENT;
+  impl->last_error_detail.status = status;
   impl->last_error_detail.api = api ? api : "";
   impl->last_error_detail.section = section ? section : "";
   impl->last_error_detail.index = index;
@@ -737,7 +803,17 @@ static void set_error(
   dec->last_error = impl->last_error.c_str();
 }
 
+static void set_error(
+    sqzc3d_dec_t* dec,
+    const std::string& message,
+    const char* api = nullptr,
+    const char* section = nullptr,
+    int index = -1) {
+  set_error(dec, sqzc3d_STATUS_INVALID_ARGUMENT, message, api, section, index);
+}
+
 static void reset_error(sqzc3d_dec_t* dec) {
+  reset_global_error();
   if (!dec) return;
   auto* impl = static_cast<sqzc3dDec*>(dec->impl);
   if (!impl) return;
@@ -749,15 +825,18 @@ static void reset_error(sqzc3d_dec_t* dec) {
 
 static bool normalize_range(int n_total, int start, int count, int* out_start, int* out_count) {
   if (n_total < 0) return false;
-  if (start < 0) start += n_total;
-  if (count < 0) count = n_total - start;
-  if (start < 0) start = 0;
-  if (start > n_total) start = n_total;
-  if (count < 0) count = 0;
-  if (start + count > n_total) count = n_total - start;
-  if (out_start) *out_start = start;
-  if (out_count) *out_count = count;
-  return count >= 0;
+  std::int64_t s = start;
+  std::int64_t c = count;
+  const std::int64_t total = static_cast<std::int64_t>(n_total);
+  if (s < 0) s += total;
+  if (c < 0) c = total - s;
+  if (s < 0) s = 0;
+  if (s > total) s = total;
+  if (c < 0) c = 0;
+  if (s + c > total) c = total - s;
+  if (out_start) *out_start = static_cast<int>(s);
+  if (out_count) *out_count = static_cast<int>(c);
+  return c >= 0;
 }
 
 static int map_labels_to_indices(
@@ -983,12 +1062,9 @@ sqzc3d_API void sqzc3d_default_bundle_load_opt(sqzc3d_bundle_load_opt_t* out_opt
 }
 
 sqzc3d_API int sqzc3d_get_features(void) {
-  int features = SQZC3D_FEATURE_BUNDLE;
+  int features = SQZC3D_FEATURE_BUNDLE | SQZC3D_FEATURE_ANALOG;
 #if sqzc3d_WITH_EZC3D
   features |= SQZC3D_FEATURE_OPEN_FILE | SQZC3D_FEATURE_OPEN_MEMORY | SQZC3D_FEATURE_BUILD_CHUNKS;
-#endif
-#if sqzc3d_WITH_EZC3D
-  features |= SQZC3D_FEATURE_ANALOG;
 #endif
   return features;
 }
@@ -1014,7 +1090,15 @@ sqzc3d_API int sqzc3d_last_error_detail(
     const sqzc3d_dec_t* dec,
     sqzc3d_error_detail_t* out_detail) {
   if (!out_detail) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  if (!dec || !dec->impl) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!dec) {
+    out_detail->status = g_last_error_detail.status;
+    out_detail->api = g_last_error_detail.api.empty() ? "" : g_last_error_detail.api.c_str();
+    out_detail->section = g_last_error_detail.section.empty() ? "" : g_last_error_detail.section.c_str();
+    out_detail->index = g_last_error_detail.index;
+    out_detail->message = g_last_error_detail.message.empty() ? "" : g_last_error_detail.message.c_str();
+    return sqzc3d_STATUS_SUCCESS;
+  }
+  if (!dec->impl) return sqzc3d_STATUS_INVALID_ARGUMENT;
   const auto* impl = static_cast<const sqzc3dDec*>(dec->impl);
   out_detail->status = impl->last_error_detail.status;
   out_detail->api = impl->last_error_detail.api.empty() ? "" : impl->last_error_detail.api.c_str();
@@ -1033,13 +1117,17 @@ sqzc3d_API int sqzc3d_open_file(
   if (out_dec) *out_dec = nullptr;
   return sqzc3d_STATUS_NOT_IMPLEMENTED;
 #endif
-  if (!out_dec || !file_path) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!out_dec || !file_path) {
+    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file called with invalid argument", "sqzc3d_open_file");
+    return sqzc3d_STATUS_INVALID_ARGUMENT;
+  }
   sqzc3d_open_opt_t opt_v{};
   if (!opt) {
     sqzc3d_default_open_opt(&opt_v);
     opt = &opt_v;
   }
   if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file: opt struct_size too small", "sqzc3d_open_file");
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
   *out_dec = nullptr;
@@ -1056,17 +1144,17 @@ sqzc3d_API int sqzc3d_open_file(
                             : (sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM);
   impl->label_norm = label_norm;
   if (opt->open_mode != sqzc3d_FILE) {
-    set_error(dec, "open_file called with non-file open_mode");
+    set_error(dec, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file called with non-file open_mode", "sqzc3d_open_file");
     delete dec;
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
-  if (sqzc3d::sqzc3d_c3d_stream_open_file(
-          impl->reader.get(), file_path, opt->preserve_raw_params != 0) !=
-      sqzc3d_STATUS_SUCCESS) {
+  const int open_st = sqzc3d::sqzc3d_c3d_stream_open_file(
+      impl->reader.get(), file_path, opt->preserve_raw_params != 0);
+  if (open_st != sqzc3d_STATUS_SUCCESS) {
     const std::string msg = "failed to open c3d file: " + std::string(file_path);
-    set_error(dec, msg);
+    set_error(dec, open_st, msg, "sqzc3d_open_file");
     delete dec;
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return open_st;
   }
   dec->impl = impl.release();
   *out_dec = dec;
@@ -1093,7 +1181,10 @@ sqzc3d_API int sqzc3d_open_memory(
   if (out_dec) *out_dec = nullptr;
   return sqzc3d_STATUS_NOT_IMPLEMENTED;
 #endif
-  if (!out_dec || !data || n_bytes <= 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!out_dec || !data || n_bytes <= 0) {
+    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory called with invalid argument", "sqzc3d_open_memory");
+    return sqzc3d_STATUS_INVALID_ARGUMENT;
+  }
   *out_dec = nullptr;
   sqzc3d_open_opt_t opt_v{};
   if (!opt) {
@@ -1101,26 +1192,48 @@ sqzc3d_API int sqzc3d_open_memory(
     opt = &opt_v;
   }
   if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: opt struct_size too small", "sqzc3d_open_memory");
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
 
   const auto* bytes = static_cast<const char*>(data);
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  auto tmp_path = tmp_dir / ("sqzc3d_mem_" + std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count()) + ".c3d");
+  std::error_code ec;
+  const auto tmp_dir = std::filesystem::temp_directory_path(ec);
+  if (ec) {
+    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT,
+              "open_memory: temp_directory_path failed: " + ec.message(),
+              "sqzc3d_open_memory");
+    return sqzc3d_STATUS_INVALID_ARGUMENT;
+  }
+  std::filesystem::path tmp_path;
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    tmp_path = make_unique_tmp_c3d_path(tmp_dir);
+    if (!std::filesystem::exists(tmp_path, ec)) break;
+    ec.clear();
+    tmp_path.clear();
+  }
+  if (tmp_path.empty()) {
+    set_error(nullptr, sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: failed to allocate temp path", "sqzc3d_open_memory");
+    return sqzc3d_STATUS_INTERNAL_ERROR;
+  }
   {
     std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
     if (!ofs) {
+      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: failed to create temp file", "sqzc3d_open_memory");
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
     ofs.write(bytes, static_cast<std::streamsize>(n_bytes));
     if (!ofs.good()) {
+      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: failed to write temp file", "sqzc3d_open_memory");
       std::error_code ec;
       std::filesystem::remove(tmp_path, ec);
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
   }
 
-  const int st = sqzc3d_open_file(out_dec, tmp_path.string().c_str(), opt);
+  sqzc3d_open_opt_t open_file_opt = *opt;
+  open_file_opt.open_mode = sqzc3d_FILE;
+  const int st = sqzc3d_open_file(out_dec, tmp_path.string().c_str(), &open_file_opt);
   if (st != sqzc3d_STATUS_SUCCESS) {
     std::error_code ec;
     std::filesystem::remove(tmp_path, ec);
@@ -1154,7 +1267,8 @@ sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec) {
 }
 
 sqzc3d_API const char* sqzc3d_last_error(const sqzc3d_dec_t* dec) {
-  if (!dec || !dec->impl) return kInvalidDecoderError;
+  if (!dec) return g_last_error.empty() ? kInvalidDecoderError : g_last_error.c_str();
+  if (!dec->impl) return kInvalidDecoderError;
   const auto* impl = static_cast<const sqzc3dDec*>(dec->impl);
   return impl->last_error.empty() ? "" : impl->last_error.c_str();
 }
@@ -1169,10 +1283,10 @@ sqzc3d_API int sqzc3d_build_chunks(
   if (out_chunk) *out_chunk = nullptr;
   return sqzc3d_STATUS_NOT_IMPLEMENTED;
 #endif
+  if (!dec || !opt || !out_chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
   if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_build_opt_t))) {
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
-  if (!dec || !opt || !out_chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
   const auto* dec_impl = static_cast<const sqzc3dDec*>(dec->impl);
   if (!dec_impl || !dec_impl->reader || !dec_impl->reader->c3d) return sqzc3d_STATUS_INVALID_ARGUMENT;
   const auto& meta = dec_impl->reader->meta;
@@ -1180,7 +1294,7 @@ sqzc3d_API int sqzc3d_build_chunks(
   int frame_start = opt->frame_range.start;
   int frame_count = opt->frame_range.count;
   if (!normalize_range(meta.n_frames, frame_start, frame_count, &frame_start, &frame_count)) {
-    set_error(const_cast<sqzc3d_dec_t*>(dec), "invalid frame range");
+    set_error(const_cast<sqzc3d_dec_t*>(dec), sqzc3d_STATUS_INVALID_ARGUMENT, "invalid frame range", "sqzc3d_build_chunks");
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
 
@@ -1202,14 +1316,14 @@ sqzc3d_API int sqzc3d_build_chunks(
   const int st_points =
       build_point_selection(opt, dec_impl->reader->point_labels, meta.n_points, point_indices, dec_impl->label_norm);
   if (st_points != sqzc3d_STATUS_SUCCESS) {
-    set_error(const_cast<sqzc3d_dec_t*>(dec), "invalid point selection");
+    set_error(const_cast<sqzc3d_dec_t*>(dec), st_points, "invalid point selection", "sqzc3d_build_chunks");
     delete chunk;
     return st_points;
   }
   const int st_analog = build_analog_selection(
       opt, dec_impl->reader->analog_labels, meta.n_analogs, analog_indices, dec_impl->label_norm);
   if (st_analog != sqzc3d_STATUS_SUCCESS) {
-    set_error(const_cast<sqzc3d_dec_t*>(dec), "invalid analog selection");
+    set_error(const_cast<sqzc3d_dec_t*>(dec), st_analog, "invalid analog selection", "sqzc3d_build_chunks");
     delete chunk;
     return st_analog;
   }
@@ -1217,17 +1331,26 @@ sqzc3d_API int sqzc3d_build_chunks(
   int analog_enable = opt->analog_enable;
   if (analog_enable == sqzc3d_ANALOG_EN_AUTO) {
     const int effective_analog_frames = (analog_range_count < frame_count) ? analog_range_count : frame_count;
-    if (analog_range_count != frame_count) {
-      chunk_impl->reason = "analog_range_count clipped to frame_range count";
+    if (analog_range_count > frame_count) {
+      if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
+      chunk_impl->reason += "analog_range_count clipped to frame_range count";
+    } else if (analog_range_count < frame_count) {
+      if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
+      chunk_impl->reason += "analog_range_count shorter than frame_range count";
     }
-    const long long projected_bytes = static_cast<long long>(effective_analog_frames) *
-                                      static_cast<long long>(meta.n_analog_by_frame) *
-      static_cast<long long>(static_cast<int>(analog_indices.size())) *
-      static_cast<long long>(sizeof(sqzc3d_num_t));
-    if (projected_bytes > opt->analog_size_soft_limit_bytes || analog_indices.empty()) analog_enable = sqzc3d_ANALOG_EN_OFF;
-    if (analog_enable != sqzc3d_ANALOG_EN_OFF && projected_bytes > opt->analog_size_soft_limit_bytes) {
-      chunk_impl->reason = "analog skipped by size gate";
+    const long long projected_bytes =
+        static_cast<long long>(effective_analog_frames) *
+        static_cast<long long>(meta.n_analog_by_frame) *
+        static_cast<long long>(static_cast<int>(analog_indices.size())) *
+        static_cast<long long>(sizeof(sqzc3d_num_t));
+    if (analog_indices.empty()) {
       analog_enable = sqzc3d_ANALOG_EN_OFF;
+      if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
+      chunk_impl->reason += "analog skipped: empty channel selection";
+    } else if (projected_bytes > opt->analog_size_soft_limit_bytes) {
+      analog_enable = sqzc3d_ANALOG_EN_OFF;
+      if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
+      chunk_impl->reason += "analog skipped by size gate";
     }
   }
   if (opt->analog_enable == sqzc3d_ANALOG_EN_OFF) analog_enable = sqzc3d_ANALOG_EN_OFF;
@@ -1370,7 +1493,7 @@ sqzc3d_API int sqzc3d_build_chunks(
           chunk_impl->n_points);
     }
     if (st != sqzc3d_STATUS_SUCCESS) {
-      set_error(const_cast<sqzc3d_dec_t*>(dec), "read frame point data failed");
+      set_error(const_cast<sqzc3d_dec_t*>(dec), st, "read frame point data failed", "sqzc3d_build_chunks");
       delete chunk;
       return st;
     }
@@ -1401,7 +1524,7 @@ sqzc3d_API int sqzc3d_build_chunks(
         residual.data(),
         static_cast<int>(residual.size()));
       if (st != sqzc3d_STATUS_SUCCESS) {
-        set_error(const_cast<sqzc3d_dec_t*>(dec), "read frame residual data failed");
+        set_error(const_cast<sqzc3d_dec_t*>(dec), st, "read frame residual data failed", "sqzc3d_build_chunks");
         delete chunk;
         return st;
       }
@@ -1441,7 +1564,7 @@ sqzc3d_API int sqzc3d_build_chunks(
           analog_target,
           analog_sample_count);
       if (st != sqzc3d_STATUS_SUCCESS) {
-        set_error(const_cast<sqzc3d_dec_t*>(dec), "read frame analog data failed");
+        set_error(const_cast<sqzc3d_dec_t*>(dec), st, "read frame analog data failed", "sqzc3d_build_chunks");
         delete chunk;
         return st;
       }
@@ -1500,8 +1623,8 @@ sqzc3d_API int sqzc3d_export_bundle(
 
   namespace fs = std::filesystem;
   const fs::path out_path = fs::path(out_dir);
-  const auto ext = out_path.extension().string();
-  const bool single_file = (ext == ".sqzc3d" || ext == ".sqzc3D");
+  const auto ext = normalize_extension(out_path.extension().string());
+  const bool single_file = (ext == ".sqzc3d");
 
   const bool has_points_xyz = chunk->points_xyz != nullptr && chunk->n_scalar > 0;
   const bool has_points_valid = chunk->points_valid != nullptr && chunk->valid_nscalar > 0;
@@ -1759,8 +1882,8 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
     if (!meta_in.good()) return sqzc3d_STATUS_INVALID_ARGUMENT;
     meta_text.assign((std::istreambuf_iterator<char>(meta_in)), std::istreambuf_iterator<char>());
   } else if (fs::is_regular_file(input_path)) {
-    const auto ext = input_path.extension().string();
-    if (ext != ".sqzc3d" && ext != ".sqzc3D") {
+    const auto ext = normalize_extension(input_path.extension().string());
+    if (ext != ".sqzc3d") {
       return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "unsupported container suffix");
     }
     std::ifstream container_in(input_path, std::ios::binary);
@@ -1779,8 +1902,12 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
     if (size_error) {
       return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "file size stat failed");
     }
-    if (meta_nbytes + 16u > static_cast<uintmax_t>(total_size))
+    if (total_size < 16u) {
       return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "container header exceeds file size");
+    }
+    if (static_cast<uintmax_t>(meta_nbytes) > total_size - 16u) {
+      return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "container header exceeds file size");
+    }
     meta_text.resize(static_cast<std::size_t>(meta_nbytes));
     container_in.read(meta_text.data(), static_cast<std::streamsize>(meta_nbytes));
     if (!container_in.good()) {
@@ -2250,7 +2377,8 @@ sqzc3d_API int sqzc3d_points_view_frames(
     int start,
     int count,
     sqzc3d_points_view_t* out_view) {
-  if (!chunk || !out_view || start < 0 || count < 0 || start + count > chunk->n_frames) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!chunk || !out_view || start < 0 || count < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (start > chunk->n_frames || count > chunk->n_frames - start) return sqzc3d_STATUS_INVALID_ARGUMENT;
   out_view->points_xyz = chunk->points_xyz ? chunk->points_xyz + static_cast<std::size_t>(start) *
                                                            static_cast<std::size_t>(chunk->n_points) * 3
                                          : nullptr;
@@ -2296,9 +2424,8 @@ sqzc3d_API int sqzc3d_analogs_view_samples(
     int start_frame,
     int n_frames,
     sqzc3d_analogs_view_t* out_view) {
-  if (!chunk || !out_view || start_frame < 0 || n_frames < 0 || start_frame + n_frames > chunk->n_frames) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
-  }
+  if (!chunk || !out_view || start_frame < 0 || n_frames < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (start_frame > chunk->n_frames || n_frames > chunk->n_frames - start_frame) return sqzc3d_STATUS_INVALID_ARGUMENT;
   const int unit = chunk->n_analogs * chunk->n_analog_by_frame;
   out_view->analog = chunk->analog ? chunk->analog + static_cast<std::size_t>(start_frame) *
                                                      static_cast<std::size_t>(unit)
@@ -2320,10 +2447,10 @@ sqzc3d_API int sqzc3d_analogs_view_channels(
   for (int i = 0; i < n; ++i) {
     if (channel_indices[i] < 0 || channel_indices[i] >= chunk->n_analogs) return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
-  bool contiguous = n > 0;
-  for (int i = 1; i < n; ++i) {
-    if (channel_indices[i] != channel_indices[0] + i) {
-      contiguous = false;
+  bool identity = true;
+  for (int i = 0; i < n; ++i) {
+    if (channel_indices[i] != i) {
+      identity = false;
       break;
     }
   }
@@ -2332,7 +2459,7 @@ sqzc3d_API int sqzc3d_analogs_view_channels(
   out_view->n_analog_by_frame = chunk->n_analog_by_frame;
   out_view->n_analogs = n;
   out_view->source_n_analogs = chunk->n_analogs;
-  out_view->channel_indices = contiguous ? nullptr : channel_indices;
+  out_view->channel_indices = identity ? nullptr : channel_indices;
   return sqzc3d_STATUS_SUCCESS;
 }
 
