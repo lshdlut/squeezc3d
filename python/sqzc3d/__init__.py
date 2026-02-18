@@ -9,7 +9,7 @@ from __future__ import annotations
 
 __all__ = ["__version__"]
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 
 def __getattr__(name: str):
@@ -18,4 +18,3 @@ def __getattr__(name: str):
         "This is a placeholder package published to reserve the name on PyPI. "
         "Track progress at https://github.com/lshdlut/squeezc3d."
     )
-

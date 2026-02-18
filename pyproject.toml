@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sqzc3d"
-version = "0.0.1"
+version = "0.0.2"
 description = "Placeholder Python package for the sqzc3d C/C++ library (bindings upcoming)."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,4 +28,3 @@ urls = { Homepage = "https://github.com/lshdlut/squeezc3d", Repository = "https:
 [tool.setuptools]
 package-dir = { "" = "python" }
 packages = ["sqzc3d"]
-
