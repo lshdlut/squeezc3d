@@ -44,6 +44,13 @@ struct C3dStreamMeta {
   double point_scale = 1.0;
   float header_scale = 1.0f;
   double analog_scale = 1.0;
+  // Point length unit conversion:
+  // - point_units_per_meter: source units per meter (derived from POINT:UNITS when available)
+  // - target_units_per_meter: desired output units per meter (default: 1 => meters)
+  // - point_unit_scale: multiplier applied to xyz to convert source -> target
+  double point_units_per_meter = 0.0;
+  double target_units_per_meter = 1.0;
+  double point_unit_scale = 1.0;
   ezc3d::PROCESSOR_TYPE processor_type = ezc3d::PROCESSOR_TYPE::INTEL;
   std::int64_t data_start_bytes = 0; ///< Absolute byte offset to first frame.
 };

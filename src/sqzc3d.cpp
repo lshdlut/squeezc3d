@@ -59,7 +59,7 @@ struct sqzc3dDec {
   std::string last_error;
   std::string temp_path;
   ErrorDetail last_error_detail;
-  int label_norm = sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM;
+  int label_norm = sqzc3d_LABEL_NORM_EXACT;
 };
 
 struct sqzc3dChunk {
@@ -97,7 +97,7 @@ struct sqzc3dChunk {
   std::vector<int> type_group_indices_storage;
   std::vector<sqzc3d_byte_t> raw_params;
   std::string reason;
-  int label_norm = sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM;
+  int label_norm = sqzc3d_LABEL_NORM_EXACT;
 };
 
 static bool is_finite(sqzc3d_num_t value) {
@@ -978,7 +978,7 @@ sqzc3d_API void sqzc3d_default_open_opt(sqzc3d_open_opt_t* out_opt) {
   out_opt->open_mode = sqzc3d_FILE;
   out_opt->enable_mmap = 1;
   out_opt->cache_labels = 1;
-  out_opt->label_norm = sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM;
+  out_opt->label_norm = sqzc3d_LABEL_NORM_EXACT;
   out_opt->reserved = 0;
 }
 
@@ -1141,7 +1141,7 @@ sqzc3d_API int sqzc3d_open_file(
                             ? (opt->label_norm & (sqzc3d_LABEL_NORM_EXACT |
                                                  sqzc3d_LABEL_NORM_TRIM |
                                                  sqzc3d_LABEL_NORM_CASEFOLD_WS))
-                            : (sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM);
+                            : sqzc3d_LABEL_NORM_EXACT;
   impl->label_norm = label_norm;
   if (opt->open_mode != sqzc3d_FILE) {
     set_error(dec, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file called with non-file open_mode", "sqzc3d_open_file");
@@ -1245,7 +1245,7 @@ sqzc3d_API int sqzc3d_open_memory(
                             ? (opt->label_norm & (sqzc3d_LABEL_NORM_EXACT |
                                                  sqzc3d_LABEL_NORM_TRIM |
                                                  sqzc3d_LABEL_NORM_CASEFOLD_WS))
-                            : (sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM);
+                            : sqzc3d_LABEL_NORM_EXACT;
   impl->label_norm = label_norm;
   return sqzc3d_STATUS_SUCCESS;
 }
@@ -2143,7 +2143,7 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   chunk_impl->header_scale = header_scale;
   chunk->header_scale = chunk_impl->header_scale;
   chunk_impl->reason = reason;
-  chunk_impl->label_norm = sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM;
+  chunk_impl->label_norm = sqzc3d_LABEL_NORM_EXACT;
   chunk->valid_policy = chunk_impl->valid_policy;
 
   const auto verify_section_checksum = [&](const BundleSection& section,
@@ -2332,7 +2332,7 @@ sqzc3d_API int sqzc3d_point_indices_for_labels(
     int miss_idx) {
   if (!chunk || !out_indices || n_labels < 0 || (n_labels > 0 && !labels)) return sqzc3d_STATUS_INVALID_ARGUMENT;
   const auto* chunk_impl = static_cast<const sqzc3dChunk*>(chunk->impl);
-  const int norm_mode = chunk_impl ? chunk_impl->label_norm : (sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM);
+  const int norm_mode = chunk_impl ? chunk_impl->label_norm : sqzc3d_LABEL_NORM_EXACT;
   for (int i = 0; i < n_labels; ++i) {
     out_indices[static_cast<std::size_t>(i)] = miss_idx;
     if (!labels[i]) continue;
@@ -2356,7 +2356,7 @@ sqzc3d_API int sqzc3d_analog_indices_for_labels(
     int miss_idx) {
   if (!chunk || !out_indices || n_labels < 0 || (n_labels > 0 && !labels)) return sqzc3d_STATUS_INVALID_ARGUMENT;
   const auto* chunk_impl = static_cast<const sqzc3dChunk*>(chunk->impl);
-  const int norm_mode = chunk_impl ? chunk_impl->label_norm : (sqzc3d_LABEL_NORM_EXACT | sqzc3d_LABEL_NORM_TRIM);
+  const int norm_mode = chunk_impl ? chunk_impl->label_norm : sqzc3d_LABEL_NORM_EXACT;
   for (int i = 0; i < n_labels; ++i) {
     out_indices[static_cast<std::size_t>(i)] = miss_idx;
     if (!labels[i]) continue;

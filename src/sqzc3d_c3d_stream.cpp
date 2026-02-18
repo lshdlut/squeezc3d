@@ -60,6 +60,27 @@ static std::string trim_label(const std::string& src) {
   return std::string(begin, end);
 }
 
+static std::string normalize_unit_token(const std::string& raw) {
+  const auto trimmed = trim_label(raw);
+  std::string out;
+  out.reserve(trimmed.size());
+  for (unsigned char ch : trimmed) {
+    if (std::isspace(ch)) continue;
+    out.push_back(static_cast<char>(std::tolower(ch)));
+  }
+  return out;
+}
+
+static double units_per_meter_from_unit_token(const std::string& raw) {
+  const auto u = normalize_unit_token(raw);
+  if (u.empty()) return 0.0;
+  if (u == "mm" || u == "millimeter" || u == "millimeters") return 1000.0;
+  if (u == "cm" || u == "centimeter" || u == "centimeters") return 100.0;
+  if (u == "m" || u == "meter" || u == "meters") return 1.0;
+  if (u == "km" || u == "kilometer" || u == "kilometers") return 1e-3;
+  return 0.0;
+}
+
 static std::string normalize_label(const char* s, int mode) {
   if (!s) return {};
   std::string out(s);
@@ -168,6 +189,11 @@ static sqzc3d_status read_point_record(
     xyz[2] = nan;
   }
 
+  const sqzc3d_num_t unit_scale = static_cast<sqzc3d_num_t>(meta.point_unit_scale);
+  xyz[0] *= unit_scale;
+  xyz[1] *= unit_scale;
+  xyz[2] *= unit_scale;
+
   if (out_xyz) {
     out_xyz[0] = xyz[0];
     out_xyz[1] = xyz[1];
@@ -229,6 +255,12 @@ static inline void decode_point_record_intel(
     y = nan;
     z = nan;
   }
+
+  const sqzc3d_num_t unit_scale = static_cast<sqzc3d_num_t>(meta.point_unit_scale);
+  x *= unit_scale;
+  y *= unit_scale;
+  z *= unit_scale;
+
   if (out_xyz3) {
     out_xyz3[0] = x;
     out_xyz3[1] = y;
@@ -492,6 +524,13 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
         const auto& v = g.parameter("SCALE").valuesAsDouble();
         if (!v.empty()) tmp.point_scale = v[0];
       }
+      if (g.isParameter("UNITS")) {
+        const auto& u = g.parameter("UNITS");
+        if (u.type() == ezc3d::DATA_TYPE::CHAR) {
+          const auto values = u.valuesAsString();
+          if (!values.empty()) tmp.point_units_per_meter = units_per_meter_from_unit_token(values[0]);
+        }
+      }
     }
     if (c3d->parameters().isGroup("ANALOG")) {
       const auto& g = c3d->parameters().group("ANALOG");
@@ -500,6 +539,14 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
         if (!v.empty()) tmp.analog_scale = v[0];
       }
     }
+
+    // Default target unit is meters (units_per_meter = 1.0).
+    tmp.target_units_per_meter = 1.0;
+    if (!(tmp.point_units_per_meter > 0.0) || !std::isfinite(tmp.point_units_per_meter)) {
+      // C3D files typically use mm; treat missing/unknown units as mm for robustness.
+      tmp.point_units_per_meter = 1000.0;
+    }
+    tmp.point_unit_scale = tmp.target_units_per_meter / tmp.point_units_per_meter;
 
     tmp.n_points = static_cast<int>(c3d->header().nb3dPoints());
     tmp.n_analogs = static_cast<int>(c3d->header().nbAnalogs());
