@@ -1,6 +1,16 @@
+include CMakeLists.txt
+include DEPENDENCIES.md
+include PLAN.md
 include README.md
 include LICENSE
 include NOTICE
 
+recursive-include include *.h
+recursive-include src *.cpp
+recursive-include samples *.cpp
+recursive-include docs *.md
 recursive-include python *.py
+recursive-include python *.cpp
 
+global-exclude __pycache__
+global-exclude *.pyc

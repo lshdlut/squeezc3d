@@ -1,11 +1,16 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = [
+  "scikit-build-core>=0.9.0",
+  "pybind11>=2.11.0",
+  "cmake>=3.16",
+  "ninja",
+]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "sqzc3d"
 version = "0.0.2"
-description = "Placeholder Python package for the sqzc3d C/C++ library (bindings upcoming)."
+description = "Python bindings for the sqzc3d C/C++ library (work in progress)."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
@@ -14,6 +19,7 @@ keywords = ["c3d", "mocap", "biomechanics"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",
+  "Programming Language :: C++",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.9",
@@ -25,6 +31,14 @@ classifiers = [
 ]
 urls = { Homepage = "https://github.com/lshdlut/squeezc3d", Repository = "https://github.com/lshdlut/squeezc3d" }
 
-[tool.setuptools]
-package-dir = { "" = "python" }
-packages = ["sqzc3d"]
+[tool.scikit-build]
+cmake.minimum-version = "3.16"
+cmake.build-type = "Release"
+wheel.packages = ["python/sqzc3d"]
+cmake.args = [
+  "-DSQZC3D_BUILD_PYTHON=ON",
+  "-DSQZC3D_WITH_EZC3D=ON",
+  "-DSQZC3D_FETCH_EZC3D=ON",
+  "-DSQZC3D_BUILD_EXAMPLES=OFF",
+  "-DSQZC3D_EZC3D_GIT_TAG=Release_1.6.3",
+]

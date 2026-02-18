@@ -11,8 +11,9 @@ endif()
 
 option(SQZC3D_WITH_EZC3D "Enable ezc3d-backed parser implementation" ON)
 option(SQZC3D_FETCH_EZC3D "Fetch ezc3d from GitHub when not provided externally" ON)
+option(SQZC3D_BUILD_PYTHON "Build Python extension module (pybind11)" OFF)
 set(SQZC3D_EZC3D_GIT_REPOSITORY "https://github.com/pyomeca/ezc3d.git" CACHE STRING "ezc3d git repository")
-set(SQZC3D_EZC3D_GIT_TAG "Stable" CACHE STRING "ezc3d git tag/branch/commit")
+set(SQZC3D_EZC3D_GIT_TAG "Release_1.6.3" CACHE STRING "ezc3d git tag/branch/commit")
 
 if (DEFINED sqzc3d_WITH_EZC3D)
   if (_SQZC3D_WITH_EZC3D_PREDEFINED)
@@ -34,6 +35,7 @@ set(SQZC3D_SOURCE
 
 add_library(sqzc3d STATIC ${SQZC3D_SOURCE})
 set_target_properties(sqzc3d PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(sqzc3d PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_definitions(
   sqzc3d
   PUBLIC
@@ -104,6 +106,27 @@ if (SQZC3D_WITH_EZC3D)
   endif()
 endif()
 
+if (SQZC3D_BUILD_PYTHON)
+  find_package(Python COMPONENTS Interpreter Development REQUIRED)
+  find_package(pybind11 CONFIG REQUIRED)
+
+  pybind11_add_module(_core MODULE python/bindings/sqzc3d_pybind.cpp)
+  set_property(TARGET _core PROPERTY CXX_STANDARD 17)
+  target_link_libraries(_core PRIVATE sqzc3d)
+
+  if (DEFINED SKBUILD_PLATLIB_DIR)
+    set(_SQZC3D_PY_INSTALL_DIR "${SKBUILD_PLATLIB_DIR}/sqzc3d")
+  else()
+    set(_SQZC3D_PY_INSTALL_DIR "sqzc3d")
+  endif()
+  install(
+    TARGETS _core
+    LIBRARY DESTINATION "${_SQZC3D_PY_INSTALL_DIR}"
+    RUNTIME DESTINATION "${_SQZC3D_PY_INSTALL_DIR}"
+    ARCHIVE DESTINATION "${_SQZC3D_PY_INSTALL_DIR}"
+  )
+endif()
+
 option(SQZC3D_BUILD_EXAMPLES "Build sample CLI tools" OFF)
 if (NOT CMAKE_CROSSCOMPILING AND SQZC3D_BUILD_EXAMPLES)
   add_executable(bench_sqzc3d samples/bench/bench_sqzc3d.cpp)
@@ -137,5 +160,4 @@ if (NOT CMAKE_CROSSCOMPILING AND SQZC3D_BUILD_EXAMPLES)
   set_property(TARGET easy_window_sqzc3d PROPERTY CXX_STANDARD 17)
 
 endif()
-
 

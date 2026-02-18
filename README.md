@@ -245,6 +245,18 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
 
 ---
 
+## Python (WIP)
+
+`sqzc3d` is primarily a C/C++ library. Python bindings are under active development.
+
+This repository is already configured for:
+- building a minimal `pybind11` extension via `scikit-build-core`, and
+- publishing `cp39`..`cp313` wheels via GitHub Actions + PyPI Trusted Publishing.
+
+Current scope of the Python extension is intentionally minimal (scaffold only).
+
+---
+
 ## License
 
 `Squeezed C3D (sqzc3d)` is released under **MIT**.
