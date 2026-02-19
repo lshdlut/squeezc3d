@@ -73,6 +73,9 @@ In v0.x the default points layout is fixed:
   - `points_xyz_stride = [n_points*3, 3, 1]`
   - `points_valid_shape = [n_frames][n_points]` (contiguous)
   - `points_valid_stride = [n_points, 1]`
+- Default analog layout in v0.x is channel-major `(C, N)`:
+  - `analog_shape = [n_analogs][n_frames*n_analog_by_frame]` (contiguous)
+  - `analog_stride = [n_frames*n_analog_by_frame, 1]`
 
 ## Feature and capability
 
@@ -93,7 +96,9 @@ Header-only helpers in `include/sqzc3d_easy.h`:
 - `sqzc3d::FrameMajorPointsView`
   - Convert chunk pointer to frame-major AoS view with `[frame][point][xyz]` shape.
 - `sqzc3d::AnalogSamplesView`
-  - Convert chunk pointer to analog view with frame-major layout.
+  - Convert chunk pointer to analog view with channel-major `(C, N)` layout.
+- `sqzc3d::FrameMajorAnalogViewTCS`
+  - Provide a non-contiguous (strided) frame-major view `(T, C, S)` over the underlying `(C, N)` storage.
 - `sqzc3d::PointIndicesFromTypeGroups`
   - Convert type-group names to flat point index list.
 - `sqzc3d::ReorderFrameMajorToPointMajor`
@@ -119,3 +124,43 @@ Header-only helpers in `include/sqzc3d_easy.h`:
 - All non-`const` out-parameters are expected writable by caller.
 - Resources allocated by this library must be released with corresponding `free` APIs above.
 - In v0.x, there is no residual/camera-mask public payload; if needed downstream, add via request/extension.
+
+## Python API (pybind11)
+
+High-level Python exports:
+
+- `sqzc3d.version()`
+- `sqzc3d.abi_version()`
+- `sqzc3d.features()`
+- `sqzc3d.Decoder`
+- `sqzc3d.Chunk`
+- `sqzc3d.load_bundle(path: str, strict: bool = True)`
+
+`Decoder`:
+
+- `Decoder(path, preserve_raw_params=False, label_norm=sqzc3d.SQZC3D_LABEL_NORM_EXACT)`
+- `Decoder.read(start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None)`
+- `Decoder.close()`
+- `Decoder.source_path` (read-only)
+- `Decoder.closed` (read-only bool)
+
+`Chunk`:
+
+- `chunk.points(selector=None, copy=True) -> (values, valid)`
+- `chunk.analogs(selector=None, layout="CN", copy=True) -> (values, valid)`
+  - `layout="tcs"` returns a non-contiguous frame-major view `(T, C, S)` over channel-major storage.
+- `chunk.meta` (dict)
+- `chunk.meta_tree` (dict, full parsed EZ metadata tree when source file path is available)
+- `chunk.source_path` (read-only)
+
+Python payload semantics:
+
+- `points` values: `float64`, default frame-major shape `(T, P, 3)`, valid mask `(T, P)` with dtype `uint8`.
+- `analogs` values:
+  - `layout="CN"` default: `(C, N)` where `N = n_frames * n_analog_by_frame`
+  - `layout="tcs"`: `(T, C, S)` non-contiguous view helper
+- selector:
+  - `None` means all
+  - `int` or list/tuple of ints for index selection
+  - `str` or list/tuple of str for label selection
+- non-contiguous selection requires `copy=True`; `copy=False` currently raises `RuntimeError` and avoids hidden conversions.

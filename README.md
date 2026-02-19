@@ -168,6 +168,9 @@ const auto view = sqzc3d::FrameMajorPointsView(chunk);
 `sqzc3d_easy.h` is a lightweight C++ helper that builds common window reads with defaults and exposes
 `PointWindow` / `AnalogWindow` lightweight views plus frame-major -> point-major reorder.
 
+Analog values are stored as channel-major `(C, N)` where `N = n_frames * n_analog_by_frame`.
+For consumers who prefer frame-major indexing, `sqzc3d_easy.h` provides a non-contiguous (strided) `(T, C, S)` view helper.
+
 ### 4) Fast onboarding (selection + shape assumptions)
 
 - For one-off integration, start from C++ easy helpers (`ReadPointsWindow`, `FrameMajorPointsView`) to get a deterministic
@@ -245,15 +248,39 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
 
 ---
 
-## Python (WIP)
+## Python
 
-`sqzc3d` is primarily a C/C++ library. Python bindings are under active development.
+`sqzc3d` provides a lightweight Python API built on top of `pybind11`.
+The package ships a `Decoder` + `Chunk` API intended for terminal/analysis workflows.
 
-This repository is already configured for:
-- building a minimal `pybind11` extension via `scikit-build-core`, and
-- publishing `cp39`..`cp313` wheels via GitHub Actions + PyPI Trusted Publishing.
+### Install
 
-Current scope of the Python extension is intentionally minimal (scaffold only).
+`pip install sqzc3d`
+
+### Minimal usage
+
+```python
+import sqzc3d
+
+dec = sqzc3d.Decoder("trial.c3d", preserve_raw_params=False, label_norm=sqzc3d.SQZC3D_LABEL_NORM_TRIM)
+chunk = dec.read(
+    start_frame=0,
+    frame_count=-1,
+    points=[0, 2],      # marker index mode
+    analogs=["EMG1", "EMG2"]  # label mode is supported too
+)
+
+pts, pts_valid = chunk.points()  # default: copy=True, returns (values, valid)
+ana, ana_valid = chunk.analogs(layout="CN")  # default analog layout is channel-major (C, N)
+ana_tm, ana_tm_valid = chunk.analogs(selector=[0, 1], layout="tcs")  # frame-major view helper
+
+print(chunk.meta["n_frames"], len(chunk.meta["point_labels"]))
+```
+
+### Build notes
+
+- The package is built with `scikit-build-core` + `pybind11` and publishes `cp39`..`cp313` wheels.
+- This is configured in `pyproject.toml` and `.github/workflows/pypi.yml`.
 
 ---
 

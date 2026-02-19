@@ -16,6 +16,13 @@ This file tracks completion state for public delivery.
 - Public API versioning surface (`sqzc3d_version`, `sqzc3d_abi_version`) and version macros.
 - Diagnostics path: `sqzc3d_last_error`, `sqzc3d_last_error_detail`, status/error enums.
 - Capability introspection: `sqzc3d_get_features`.
+- Python binding skeleton:
+  - `pybind11` extension source in `python/bindings/sqzc3d_pybind.cpp`.
+  - Runtime API exposed as `Decoder` / `Chunk`:
+    - `Decoder.read`, `close`, `source_path`, `closed`
+    - `Chunk.points`, `analogs`, `meta`, `meta_tree`
+    - `load_bundle(path, strict=True)` and constants export.
+  - Python package entry (`python/sqzc3d/__init__.py`) now exports API and constants instead of WIP placeholders.
 - CI matrix + dependency/documentation scaffolding (`.github/workflows/ci.yml`, `DEPENDENCIES.md`, `NOTICE`).
 - Local benchmark/perf noise cleanup hooks.
 - C API presets for stream/frame-window usage.
