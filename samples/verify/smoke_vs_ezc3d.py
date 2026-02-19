@@ -19,7 +19,13 @@ _MAX_TREE_DIFF = 200
 
 
 def _find_repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    candidate = Path(__file__).resolve().parent
+    while candidate.parent != candidate:
+        if (candidate / ".git").exists() or candidate.name == "squeezc3d":
+            return candidate
+        candidate = candidate.parent
+
+    raise RuntimeError("failed to locate repository root for sqzc3d")
 
 
 def _ensure_sqzc3d_import():
@@ -40,6 +46,17 @@ def _safe_numpy_array(x) -> np.ndarray:
     if arr.dtype == np.object_:
         return np.array([str(v) if v is not None else "" for v in arr], dtype=object)
     return arr
+
+
+def _to_dict_like(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value
+    try:
+        if hasattr(value, "keys"):
+            return {str(k): value[k] for k in value.keys()}
+    except Exception:
+        return value
+    return value
 
 
 def _safe_number(value: Any, default=None):
@@ -285,16 +302,14 @@ def _extract_ezc3d_arrays(ez) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
 
     analog_valid = np.isfinite(analogs).astype(np.uint8)
 
-    params = ez.get("parameters", {})
-    if not isinstance(params, dict):
-        params = {}
+    params = _to_dict_like(ez.get("parameters", {}))
     point_group = params.get("POINT", {}) if isinstance(params, dict) else {}
     analog_group = params.get("ANALOG", {}) if isinstance(params, dict) else {}
     point_rate = _safe_number(point_group.get("RATE", {}).get("value")) if isinstance(point_group, dict) else None
     analog_rate = _safe_number(analog_group.get("RATE", {}).get("value")) if isinstance(analog_group, dict) else None
 
     if point_rate is None or analog_rate is None:
-        header = _to_plain_value(ez.get("header", {}))
+        header = _to_plain_value(_to_dict_like(ez.get("header", {})))
         if point_rate is None and isinstance(header.get("points"), dict):
             point_rate = _safe_number(header["points"].get("frame_rate"), point_rate)
         if analog_rate is None and isinstance(header.get("analogs"), dict):
@@ -313,10 +328,10 @@ def _extract_ezc3d_arrays(ez) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
 
 
 def _build_reference_meta(ez, ez_points: np.ndarray, ez_point_valid: np.ndarray, ez_analogs: np.ndarray) -> dict:
-    header = _to_plain_value(ez.get("header", {})) if isinstance(ez, dict) else {}
+    header = _to_plain_value(_to_dict_like(ez.get("header", {})))
     point_header = header.get("points", {}) if isinstance(header, dict) else {}
     analog_header = header.get("analogs", {}) if isinstance(header, dict) else {}
-    params = ez.get("parameters", {}) if isinstance(ez, dict) else {}
+    params = _to_dict_like(ez.get("parameters", {}))
 
     n_frames = int(point_header.get("size", ez_points.shape[0]))
     n_points = int(ez_points.shape[1]) if ez_points.ndim >= 2 else 0
@@ -478,9 +493,7 @@ def _compare_meta_tree(sq_chunk, ez) -> List[str]:
     except Exception as exc:
         return [f"meta_tree access failed: {type(exc).__name__}: {exc}"]
 
-    ez_params = ez.get("parameters", {})
-    if not isinstance(ez_params, dict):
-        return ["ezc3d parameters unavailable or not a dict"]
+    ez_params = _to_dict_like(ez.get("parameters", {}))
 
     expected_tree = _normalize_ezc3d_meta_tree(ez_params)
     _compare_value("meta_tree", sq_tree, expected_tree, out)
@@ -512,7 +525,7 @@ def run_one(file_path: Path, strict: bool = True) -> CompareReport:
 
     point_labels_sq = _extract_sqzc3d_labels(sq_chunk, "point_labels")
     analog_labels_sq = _extract_sqzc3d_labels(sq_chunk, "analog_labels")
-    ez_params = ez.get("parameters", {})
+    ez_params = _to_dict_like(ez.get("parameters", {}))
     ez_point_labels = []
     ez_analog_labels = []
     if isinstance(ez_params, dict) and isinstance(ez_params.get("POINT", {}), dict):
