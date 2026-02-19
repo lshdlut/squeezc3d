@@ -152,7 +152,12 @@ typedef struct sqzc3d_chunk_t_ {
 
   sqzc3d_num_t* points_xyz;
   unsigned char* points_valid;
+  // Analog layout: channel-major [channel][sample] (C, N), where:
+  // - N = n_frames * n_analog_by_frame
+  // - sample = frame * n_analog_by_frame + subframe
+  // Flattened index: analog[channel * N + sample].
   sqzc3d_num_t* analog;
+  // Same layout as analog.
   unsigned char* analog_valid;
   const char** point_labels;
   const char** analog_labels;
@@ -200,11 +205,17 @@ typedef struct sqzc3d_points_view_t_ {
 
 typedef struct sqzc3d_analogs_view_t_ {
   const sqzc3d_num_t* analog;
+  const unsigned char* analog_valid;
   int n_frames;
   int n_analog_by_frame;
   int n_analogs;
-  int source_n_analogs;
-  const int* channel_indices;   // non-null for gather view
+  // n_samples = n_frames * n_analog_by_frame
+  int n_samples;
+  // Source samples per channel (stride in samples between channels).
+  // For views derived from a chunk: source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame.
+  int source_stride_samples;
+  // Non-null for gather view; values are source channel indices.
+  const int* channel_indices;
 } sqzc3d_analogs_view_t;
 
 sqzc3d_API void sqzc3d_default_open_opt(sqzc3d_open_opt_t* out_opt);

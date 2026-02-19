@@ -44,13 +44,17 @@ struct C3dStreamMeta {
   double point_scale = 1.0;
   float header_scale = 1.0f;
   double analog_scale = 1.0;
+  double analog_scale_default = 1.0;
+  std::vector<double> analog_scales;
   // Point length unit conversion:
   // - point_units_per_meter: source units per meter (derived from POINT:UNITS when available)
   // - target_units_per_meter: desired output units per meter (default: 1 => meters)
   // - point_unit_scale: multiplier applied to xyz to convert source -> target
+  // - point_units_source: 0 => from POINT:UNITS, 1 => assumed mm (missing), 2 => assumed mm (unknown token)
   double point_units_per_meter = 0.0;
   double target_units_per_meter = 1.0;
   double point_unit_scale = 1.0;
+  int point_units_source = 0;
   ezc3d::PROCESSOR_TYPE processor_type = ezc3d::PROCESSOR_TYPE::INTEL;
   std::int64_t data_start_bytes = 0; ///< Absolute byte offset to first frame.
 };
@@ -73,6 +77,18 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     const char* file_path,
     bool preserve_raw_params);
 void sqzc3d_c3d_stream_close(C3dStreamReader* reader);
+
+// Set desired output length unit for subsequent xyz reads.
+// - unit_token: "mm", "cm", "m", "km" (case-insensitive; whitespace ignored)
+sqzc3d_status sqzc3d_c3d_stream_set_target_unit(
+    C3dStreamReader* reader,
+    const char* unit_token);
+
+// Set desired output length unit for subsequent xyz reads, as units-per-meter.
+// - units_per_meter: 1000 => mm, 1 => m
+sqzc3d_status sqzc3d_c3d_stream_set_target_units_per_meter(
+    C3dStreamReader* reader,
+    double units_per_meter);
 
 // Map point labels to global point indices using the full C3D POINT:LABELS table.
 // Best-effort semantics: missing labels map to miss_idx.

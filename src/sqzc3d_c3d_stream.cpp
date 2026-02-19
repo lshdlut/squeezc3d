@@ -3,11 +3,14 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <stdexcept>
+#include <sys/stat.h>
 #include <unordered_map>
 #include <vector>
 
@@ -25,9 +28,17 @@ class C3dHeaderOnly final : public ezc3d::c3d {
   void load_header_only(std::fstream& file, const std::string& file_path) {
     _filePath = file_path;
     _data.reset();
-    _header = std::make_shared<ezc3d::Header>(*this, file);
-    _parameters = std::make_shared<ezc3d::ParametersNS::Parameters>(*this, file);
-    updateHeader();
+    try {
+      _header = std::make_shared<ezc3d::Header>(*this, file);
+    } catch (const std::exception& e) {
+      throw std::runtime_error(std::string("ezc3d::Header failed: ") + e.what());
+    }
+
+    try {
+      _parameters = std::make_shared<ezc3d::ParametersNS::Parameters>(*this, file);
+    } catch (const std::exception& e) {
+      throw std::runtime_error(std::string("ezc3d::Parameters failed: ") + e.what());
+    }
   }
 };
 
@@ -274,6 +285,7 @@ static inline void decode_point_record_intel(
 static sqzc3d_status read_analog_record(
     C3dStreamReader* reader,
     std::size_t offset,
+    int analog_idx,
     sqzc3d_num_t* out_value) {
   auto& file = reader->file;
   file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
@@ -287,9 +299,13 @@ static sqzc3d_status read_analog_record(
   if (meta.analog_record_bytes != 2) {
     return sqzc3d_STATUS_NOT_IMPLEMENTED;
   }
+  double scale = meta.analog_scale_default;
+  if (analog_idx >= 0 && analog_idx < static_cast<int>(meta.analog_scales.size())) {
+    scale = meta.analog_scales[static_cast<std::size_t>(analog_idx)];
+  }
   *out_value = static_cast<sqzc3d_num_t>(
       static_cast<float>(reader->c3d->readInt(meta.processor_type, file, 2)) *
-      static_cast<sqzc3d_num_t>(meta.analog_scale));
+      static_cast<sqzc3d_num_t>(scale));
   return sqzc3d_STATUS_SUCCESS;
 }
 
@@ -502,42 +518,77 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
   reader->type_group_indices.clear();
   reader->raw_params.clear();
 
+  std::unique_ptr<C3dHeaderOnly> c3d;
+  const char* phase = "init";
+
   try {
+    phase = "open";
     reader->file.open(file_path, std::ios::in | std::ios::binary);
-    if (!reader->file.is_open()) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (!reader->file.is_open()) {
+      fprintf(stderr, "[sqzc3d] ERROR: failed to open C3D file: %s\n", file_path);
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
     reader->file.seekg(0, std::ios::beg);
 
-    auto c3d = std::make_unique<C3dHeaderOnly>();
-    c3d->load_header_only(reader->file, file_path);
+    phase = "header_only";
+    c3d = std::make_unique<C3dHeaderOnly>();
+    try {
+      c3d->load_header_only(reader->file, file_path);
+    } catch (const std::exception& e) {
+      throw std::runtime_error(std::string("sqzc3d_c3d_stream_open_file: header-only parse failed: ") + e.what());
+    }
     reader->file.clear();
     reader->file.seekg(0, std::ios::beg);
 
+    phase = "check_point";
+    if (!c3d->parameters().isGroup("POINT")) {
+      fprintf(stderr,
+              "[sqzc3d] WARNING: C3D file has no POINT group in header-only parse: %s\n",
+              file_path);
+    }
+
     C3dStreamMeta meta{};
     C3dStreamMeta tmp{};
-    tmp.processor_type = c3d->parameters().processorType();
-    normalize_processor_type(tmp.processor_type);
-    tmp.header_scale = c3d->header().scaleFactor();
-    tmp.point_scale = 1.0;
-    if (c3d->parameters().isGroup("POINT")) {
-      const auto& g = c3d->parameters().group("POINT");
-      if (g.isParameter("SCALE")) {
-        const auto& v = g.parameter("SCALE").valuesAsDouble();
-        if (!v.empty()) tmp.point_scale = v[0];
-      }
-      if (g.isParameter("UNITS")) {
-        const auto& u = g.parameter("UNITS");
-        if (u.type() == ezc3d::DATA_TYPE::CHAR) {
-          const auto values = u.valuesAsString();
-          if (!values.empty()) tmp.point_units_per_meter = units_per_meter_from_unit_token(values[0]);
+    bool has_point_units_param = false;
+    std::string point_units_token;
+    phase = "meta";
+    try {
+      tmp.processor_type = c3d->parameters().processorType();
+      normalize_processor_type(tmp.processor_type);
+      tmp.header_scale = c3d->header().scaleFactor();
+      tmp.point_scale = static_cast<double>(tmp.header_scale);
+
+      if (c3d->parameters().isGroup("POINT")) {
+        const auto& g = c3d->parameters().group("POINT");
+        if (g.isParameter("SCALE")) {
+          const auto& v = g.parameter("SCALE").valuesAsDouble();
+          if (!v.empty()) tmp.point_scale = v[0];
+        }
+        if (g.isParameter("UNITS")) {
+          has_point_units_param = true;
+          const auto& u = g.parameter("UNITS");
+          if (u.type() == ezc3d::DATA_TYPE::CHAR) {
+            const auto values = u.valuesAsString();
+            if (!values.empty()) {
+              point_units_token = values[0];
+              tmp.point_units_per_meter = units_per_meter_from_unit_token(point_units_token);
+            }
+          }
         }
       }
-    }
-    if (c3d->parameters().isGroup("ANALOG")) {
-      const auto& g = c3d->parameters().group("ANALOG");
-      if (g.isParameter("SCALE")) {
-        const auto& v = g.parameter("SCALE").valuesAsDouble();
-        if (!v.empty()) tmp.analog_scale = v[0];
+      if (c3d->parameters().isGroup("ANALOG")) {
+        const auto& g = c3d->parameters().group("ANALOG");
+        if (g.isParameter("SCALE")) {
+          const auto& v = g.parameter("SCALE").valuesAsDouble();
+          if (!v.empty()) tmp.analog_scale = v[0];
+          if (!v.empty()) {
+            tmp.analog_scales.assign(v.begin(), v.end());
+          }
+        }
       }
+    } catch (const std::exception& e) {
+      throw std::runtime_error(
+          std::string("sqzc3d_c3d_stream_open_file: meta parse failed: ") + e.what());
     }
 
     // Default target unit is meters (units_per_meter = 1.0).
@@ -545,12 +596,35 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     if (!(tmp.point_units_per_meter > 0.0) || !std::isfinite(tmp.point_units_per_meter)) {
       // C3D files typically use mm; treat missing/unknown units as mm for robustness.
       tmp.point_units_per_meter = 1000.0;
+      tmp.point_units_source = has_point_units_param ? 2 : 1;
+      if (tmp.point_units_source == 1) {
+        fprintf(stderr, "[sqzc3d] WARNING: C3D POINT:UNITS missing; assuming mm for xyz.\n");
+      } else {
+        const auto token_norm = normalize_unit_token(point_units_token);
+        if (!token_norm.empty()) {
+          fprintf(stderr,
+                  "[sqzc3d] WARNING: C3D POINT:UNITS unknown (\"%s\"); assuming mm for xyz.\n",
+                  token_norm.c_str());
+        } else {
+          fprintf(stderr, "[sqzc3d] WARNING: C3D POINT:UNITS unknown; assuming mm for xyz.\n");
+        }
+      }
+    } else {
+      tmp.point_units_source = 0;
     }
     tmp.point_unit_scale = tmp.target_units_per_meter / tmp.point_units_per_meter;
 
     tmp.n_points = static_cast<int>(c3d->header().nb3dPoints());
     tmp.n_analogs = static_cast<int>(c3d->header().nbAnalogs());
     tmp.n_analog_by_frame = static_cast<int>(c3d->header().nbAnalogByFrame());
+    tmp.analog_scale_default = tmp.analog_scale;
+    if (tmp.analog_scales.empty()) {
+      tmp.analog_scales.assign(std::max(tmp.n_analogs, 1), tmp.analog_scale_default);
+    } else if (static_cast<int>(tmp.analog_scales.size()) > tmp.n_analogs) {
+      tmp.analog_scales.resize(static_cast<std::size_t>(tmp.n_analogs));
+    } else if (static_cast<int>(tmp.analog_scales.size()) < tmp.n_analogs && tmp.n_analogs > 0) {
+      tmp.analog_scales.resize(static_cast<std::size_t>(tmp.n_analogs), tmp.analog_scale_default);
+    }
     tmp.point_record_scalar = (tmp.point_scale < 0.0) ? 2 : 1;
     tmp.point_record_bytes = (tmp.point_record_scalar == 2) ? 16 : 8;
     tmp.analog_record_bytes = (tmp.header_scale < 0.0f) ? 4 : 2;
@@ -570,37 +644,85 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     // Prefer file-size-derived frame count for robustness in header-only mode.
     // Some C3D dialects report inconsistent first/last frame indices in the header, while
     // the data section size is authoritative once we know `data_start_bytes` and `frame_bytes`.
+    //
+    // However, some environments may not support reliable stream size queries (`seekg/tellg` can
+    // fail). Fall back to the header-reported frame count in that case.
+    int frames = 0;
+    {
+      const auto header_frames = c3d->header().nbFrames();
+      if (header_frames > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        return sqzc3d_STATUS_INVALID_ARGUMENT;
+      }
+      frames = static_cast<int>(header_frames);
+    }
+
     std::int64_t file_bytes = -1;
-    reader->file.seekg(0, std::ios::end);
-    if (reader->file.good()) {
-      const auto end_pos = reader->file.tellg();
-      if (end_pos >= 0) file_bytes = static_cast<std::int64_t>(end_pos);
+    {
+      struct stat st {};
+      if (stat(file_path, &st) == 0 && st.st_size >= 0) {
+        file_bytes = static_cast<std::int64_t>(st.st_size);
+      }
+    }
+    if (file_bytes < 0) {
+      reader->file.clear();
+      reader->file.seekg(0, std::ios::end);
+      if (reader->file.good()) {
+        const auto end_pos = reader->file.tellg();
+        if (end_pos >= 0) file_bytes = static_cast<std::int64_t>(end_pos);
+      }
     }
     reader->file.clear();
     reader->file.seekg(0, std::ios::beg);
-    if (file_bytes <= tmp.data_start_bytes || tmp.frame_bytes <= 0) {
+
+    if (file_bytes > tmp.data_start_bytes && tmp.frame_bytes > 0) {
+      const std::int64_t data_bytes = file_bytes - tmp.data_start_bytes;
+      const std::int64_t frames_by_size = data_bytes / static_cast<std::int64_t>(tmp.frame_bytes);
+      if (frames_by_size > 0 && frames_by_size <= std::numeric_limits<int>::max()) {
+        frames = static_cast<int>(frames_by_size);
+      }
+    }
+    if (frames <= 0) {
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
-    const std::int64_t data_bytes = file_bytes - tmp.data_start_bytes;
-    const std::int64_t frames_by_size = data_bytes / static_cast<std::int64_t>(tmp.frame_bytes);
-    if (frames_by_size <= 0 || frames_by_size > std::numeric_limits<int>::max()) {
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
-    }
-    tmp.n_frames = static_cast<int>(frames_by_size);
+    tmp.n_frames = frames;
     if (!read_raw_param_blob(reader, tmp.data_start_bytes, preserve_raw_params)) {
       return sqzc3d_STATUS_INTERNAL_ERROR;
     }
 
+    phase = "labels";
     reader->c3d = std::move(c3d);
     reader->meta = tmp;
-    load_labels(reader, reader);
-    load_point_type_groups(reader, reader);
+    try {
+      load_labels(reader, reader);
+      load_point_type_groups(reader, reader);
+    } catch (const std::exception& e) {
+      throw std::runtime_error(
+          std::string("sqzc3d_c3d_stream_open_file: label/type-groups parse failed: ") +
+          e.what());
+    }
     return sqzc3d_STATUS_SUCCESS;
   } catch (const std::bad_alloc&) {
     reader->file.close();
     reader->c3d.reset();
     return sqzc3d_STATUS_INTERNAL_ERROR;
-  } catch (const std::exception&) {
+  } catch (const std::exception& e) {
+    fprintf(stderr,
+            "[sqzc3d] ERROR: exception while opening C3D (%s) [phase=%s]: %s\n",
+            file_path,
+            phase ? phase : "unknown",
+            e.what());
+    if (c3d) {
+      try {
+        const auto& params = c3d->parameters();
+        fprintf(stderr, "[sqzc3d] DEBUG: param groups (%zu):", params.nbGroups());
+        for (std::size_t i = 0; i < params.nbGroups(); ++i) {
+          fprintf(stderr, " %s", params.group(i).name().c_str());
+        }
+        fprintf(stderr, "\n");
+      } catch (...) {
+        // Best-effort debug only.
+      }
+    }
     reader->file.close();
     reader->c3d.reset();
     return sqzc3d_STATUS_INVALID_ARGUMENT;
@@ -609,6 +731,28 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     reader->c3d.reset();
     return sqzc3d_STATUS_INTERNAL_ERROR;
   }
+}
+
+sqzc3d_status sqzc3d_c3d_stream_set_target_unit(
+    C3dStreamReader* reader,
+    const char* unit_token) {
+  if (!reader || !reader->c3d || !unit_token) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  const double upm = units_per_meter_from_unit_token(unit_token);
+  if (!(upm > 0.0) || !std::isfinite(upm)) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  return sqzc3d_c3d_stream_set_target_units_per_meter(reader, upm);
+}
+
+sqzc3d_status sqzc3d_c3d_stream_set_target_units_per_meter(
+    C3dStreamReader* reader,
+    double units_per_meter) {
+  if (!reader || !reader->c3d) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!(units_per_meter > 0.0) || !std::isfinite(units_per_meter)) {
+    return sqzc3d_STATUS_INVALID_ARGUMENT;
+  }
+  auto& meta = reader->meta;
+  meta.target_units_per_meter = units_per_meter;
+  meta.point_unit_scale = meta.target_units_per_meter / meta.point_units_per_meter;
+  return sqzc3d_STATUS_SUCCESS;
 }
 
 void sqzc3d_c3d_stream_close(C3dStreamReader* reader) {
@@ -818,7 +962,7 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_analogs_sel(
       const std::size_t out_o =
           static_cast<std::size_t>(s) * static_cast<std::size_t>(n_analog_sel) +
           static_cast<std::size_t>(c);
-      const auto st = read_analog_record(reader, off, out_analog + out_o);
+      const auto st = read_analog_record(reader, off, idx, out_analog + out_o);
       if (st != sqzc3d_STATUS_SUCCESS) return st;
     }
   }
@@ -851,6 +995,22 @@ void sqzc3d_c3d_stream_close(C3dStreamReader* reader) {
     reader->type_group_indices.clear();
     reader->raw_params.clear();
   }
+}
+
+sqzc3d_status sqzc3d_c3d_stream_set_target_unit(
+    C3dStreamReader* reader,
+    const char* unit_token) {
+  (void)reader;
+  (void)unit_token;
+  return static_cast<sqzc3d_status>(sqzc3d_STATUS_NOT_IMPLEMENTED);
+}
+
+sqzc3d_status sqzc3d_c3d_stream_set_target_units_per_meter(
+    C3dStreamReader* reader,
+    double units_per_meter) {
+  (void)reader;
+  (void)units_per_meter;
+  return static_cast<sqzc3d_status>(sqzc3d_STATUS_NOT_IMPLEMENTED);
 }
 
 sqzc3d_status sqzc3d_c3d_stream_point_indices_for_labels(

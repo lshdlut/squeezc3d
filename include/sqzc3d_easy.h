@@ -23,11 +23,49 @@ struct PointWindow {
 struct AnalogWindow {
   const sqzc3d_num_t* values = nullptr;
   const unsigned char* valid = nullptr;
-  int n_frames = 0;
-  int n_analog_by_frame = 0;
-  int n_analogs = 0;
-  int sample_stride_points = 0;
-  int frame_stride_points = 0;
+  int n_analogs = 0;          // channels C
+  int n_samples = 0;          // N = n_frames * n_analog_by_frame
+  int n_frames = 0;           // for reshaping (optional)
+  int n_analog_by_frame = 0;  // samples per frame (subframes)
+  // Layout: values[channel][sample] with flattened index:
+  // values[channel * channel_stride_samples + sample].
+  int channel_stride_samples = 0;  // source samples per channel
+  int sample_stride = 1;
+};
+
+// Non-contiguous frame-major view into channel-major analog storage.
+//
+// This presents a (T, C, S) view where:
+// - T = n_frames
+// - C = n_analogs
+// - S = n_analog_by_frame
+//
+// Element mapping:
+//   view(t, c, s) == base[c * source_stride_samples + (t0 + t) * S + s]
+// with strides:
+//   stride_s = 1
+//   stride_c = source_stride_samples
+//   stride_t = S
+//
+// Note: This is a strided view; values are not contiguous in the channel dimension.
+struct FrameMajorAnalogView {
+  const sqzc3d_num_t* values = nullptr;
+  const unsigned char* valid = nullptr;
+  int n_frames = 0;           // T
+  int n_analogs = 0;          // C
+  int n_analog_by_frame = 0;  // S
+
+  int stride_t = 0;
+  int stride_c = 0;
+  int stride_s = 1;
+
+  // Source samples per channel (N for a full chunk).
+  int source_stride_samples = 0;
+
+  // Optional channel gather list (indices into the underlying chunk channels).
+  // If non-null, c in [0..n_analogs) maps to source channel channel_indices[c].
+  // This breaks the affine stride_c mapping; consumers must apply the gather themselves.
+  const int* channel_indices = nullptr;
 };
 
 inline int MakeFrameWindowBuildOpt(
@@ -112,11 +150,65 @@ inline AnalogWindow AnalogSamplesView(const sqzc3d_chunk_t* chunk) {
   if (!chunk) return view;
   view.values = chunk->analog;
   view.valid = chunk->analog_valid;
+  view.n_analogs = chunk->n_analogs;
+  view.n_frames = chunk->n_frames;
+  view.n_analog_by_frame = chunk->n_analog_by_frame;
+  view.n_samples = view.n_frames * view.n_analog_by_frame;
+  view.channel_stride_samples = view.n_samples;
+  view.sample_stride = 1;
+  return view;
+}
+
+inline AnalogWindow AnalogSamplesViewFrames(const sqzc3d_chunk_t* chunk, int start_frame, int frame_count) {
+  AnalogWindow view;
+  if (!chunk || start_frame < 0 || frame_count < 0) return view;
+  if (start_frame > chunk->n_frames || frame_count > chunk->n_frames - start_frame) return view;
+
+  const int source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame;
+  const int sample_start = start_frame * chunk->n_analog_by_frame;
+  view.values = chunk->analog ? chunk->analog + static_cast<std::size_t>(sample_start) : nullptr;
+  view.valid = chunk->analog_valid ? chunk->analog_valid + static_cast<std::size_t>(sample_start) : nullptr;
+  view.n_analogs = chunk->n_analogs;
+  view.n_frames = frame_count;
+  view.n_analog_by_frame = chunk->n_analog_by_frame;
+  view.n_samples = frame_count * chunk->n_analog_by_frame;
+  view.channel_stride_samples = source_stride_samples;
+  view.sample_stride = 1;
+  return view;
+}
+
+inline FrameMajorAnalogView FrameMajorAnalogViewTCS(const sqzc3d_chunk_t* chunk) {
+  FrameMajorAnalogView view;
+  if (!chunk) return view;
+  view.values = chunk->analog;
+  view.valid = chunk->analog_valid;
   view.n_frames = chunk->n_frames;
   view.n_analogs = chunk->n_analogs;
   view.n_analog_by_frame = chunk->n_analog_by_frame;
-  view.sample_stride_points = view.n_analogs;
-  view.frame_stride_points = view.n_analog_by_frame * view.n_analogs;
+  view.source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame;
+  view.stride_s = 1;
+  view.stride_c = view.source_stride_samples;
+  view.stride_t = view.n_analog_by_frame;
+  view.channel_indices = nullptr;
+  return view;
+}
+
+inline FrameMajorAnalogView FrameMajorAnalogViewTCSFrames(
+    const sqzc3d_chunk_t* chunk, int start_frame, int frame_count) {
+  FrameMajorAnalogView view;
+  if (!chunk || start_frame < 0 || frame_count < 0) return view;
+  if (start_frame > chunk->n_frames || frame_count > chunk->n_frames - start_frame) return view;
+  const int sample_start = start_frame * chunk->n_analog_by_frame;
+  view.values = chunk->analog ? chunk->analog + static_cast<std::size_t>(sample_start) : nullptr;
+  view.valid = chunk->analog_valid ? chunk->analog_valid + static_cast<std::size_t>(sample_start) : nullptr;
+  view.n_frames = frame_count;
+  view.n_analogs = chunk->n_analogs;
+  view.n_analog_by_frame = chunk->n_analog_by_frame;
+  view.source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame;
+  view.stride_s = 1;
+  view.stride_c = view.source_stride_samples;
+  view.stride_t = view.n_analog_by_frame;
+  view.channel_indices = nullptr;
   return view;
 }
 

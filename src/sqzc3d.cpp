@@ -1536,24 +1536,20 @@ sqzc3d_API int sqzc3d_build_chunks(
 
   const int analog_sample_count = chunk_impl->n_analogs * chunk_impl->n_analog_by_frame;
   if (analog_enable != sqzc3d_ANALOG_EN_OFF && analog_sample_count > 0) {
-    chunk_impl->analog_storage.resize(static_cast<std::size_t>(chunk_impl->n_frames) *
-                                     static_cast<std::size_t>(analog_sample_count));
-    chunk_impl->analog_valid_storage.assign(chunk_impl->analog_storage.size(), 1u);
+    const std::size_t total_samples = static_cast<std::size_t>(chunk_impl->n_frames) *
+                                      static_cast<std::size_t>(chunk_impl->n_analog_by_frame);
+    const std::size_t total_scalar = static_cast<std::size_t>(chunk_impl->n_analogs) * total_samples;
+    // Store analogs as channel-major (C, N) with N=frames*samples_per_frame.
+    chunk_impl->analog_storage.resize(total_scalar);
+    chunk_impl->analog_valid_storage.assign(total_scalar, 0u);
     chunk_impl->n_analog_scalar = static_cast<int>(chunk_impl->analog_storage.size());
+    std::vector<sqzc3d_num_t> analog_frame(static_cast<std::size_t>(analog_sample_count), 0.0);
     const int analog_frames = (analog_range_count < chunk_impl->n_frames) ? analog_range_count : chunk_impl->n_frames;
     for (int fi = 0; fi < chunk_impl->n_frames; ++fi) {
       if (fi >= analog_frames) {
-        auto* valid_ptr = chunk_impl->analog_valid_storage.data() +
-            static_cast<std::size_t>(fi) * static_cast<std::size_t>(analog_sample_count);
-        std::fill(valid_ptr, valid_ptr + analog_sample_count, 0u);
         continue;
       }
       const int f = analog_range_start + fi;
-      auto* analog_target = chunk_impl->analog_storage.data() +
-          static_cast<std::size_t>(fi) * static_cast<std::size_t>(analog_sample_count);
-      auto* analog_valid = chunk_impl->analog_valid_storage.data() +
-          static_cast<std::size_t>(fi) * static_cast<std::size_t>(analog_sample_count);
-      std::fill(analog_valid, analog_valid + analog_sample_count, 1u);
       const auto st = sqzc3d::sqzc3d_c3d_stream_read_frame_analogs_sel(
           dec_impl->reader.get(),
           f,
@@ -1561,12 +1557,27 @@ sqzc3d_API int sqzc3d_build_chunks(
           static_cast<int>(analog_indices.size()),
           0,
           meta.n_analog_by_frame,
-          analog_target,
+          analog_frame.data(),
           analog_sample_count);
       if (st != sqzc3d_STATUS_SUCCESS) {
         set_error(const_cast<sqzc3d_dec_t*>(dec), st, "read frame analog data failed", "sqzc3d_build_chunks");
         delete chunk;
         return st;
+      }
+      const std::size_t sample_base = static_cast<std::size_t>(fi) *
+                                      static_cast<std::size_t>(chunk_impl->n_analog_by_frame);
+      for (int c = 0; c < chunk_impl->n_analogs; ++c) {
+        auto* out_ptr = chunk_impl->analog_storage.data() +
+                        static_cast<std::size_t>(c) * total_samples + sample_base;
+        auto* valid_ptr = chunk_impl->analog_valid_storage.data() +
+                          static_cast<std::size_t>(c) * total_samples + sample_base;
+        for (int s = 0; s < chunk_impl->n_analog_by_frame; ++s) {
+          out_ptr[static_cast<std::size_t>(s)] =
+              analog_frame[static_cast<std::size_t>(s) *
+                               static_cast<std::size_t>(chunk_impl->n_analogs) +
+                           static_cast<std::size_t>(c)];
+          valid_ptr[static_cast<std::size_t>(s)] = 1u;
+        }
       }
     }
   }
@@ -1671,13 +1682,14 @@ sqzc3d_API int sqzc3d_export_bundle(
 
   meta_out << "{\n";
   meta_out << "  \"format\": \"sqzc3d_bundle_v2\",\n";
-  meta_out << "  \"schema_version\": 2,\n";
+  meta_out << "  \"schema_version\": 3,\n";
   meta_out << "  \"endianness\": \"little\",\n";
   meta_out << "  \"n_frames\": " << chunk->n_frames << ",\n";
   meta_out << "  \"n_points\": " << chunk->n_points << ",\n";
   meta_out << "  \"n_points_total\": " << chunk->n_points_total << ",\n";
   meta_out << "  \"n_analogs\": " << chunk->n_analogs << ",\n";
   meta_out << "  \"n_analog_by_frame\": " << chunk->n_analog_by_frame << ",\n";
+  meta_out << "  \"analog_layout\": \"CN\",\n";
   meta_out << "  \"n_scalar\": " << chunk->n_scalar << ",\n";
   meta_out << "  \"valid_nscalar\": " << chunk->valid_nscalar << ",\n";
   meta_out << "  \"n_analog_scalar\": " << chunk->n_analog_scalar << ",\n";
@@ -1935,7 +1947,7 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   if (!parse_bundle_schema_version(meta_text, strict_schema, &schema_version, &has_schema_version)) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "schema parse failed");
   }
-  if (is_v2 && (!has_schema_version || schema_version != 2)) {
+  if (is_v2 && (!has_schema_version || schema_version != 3)) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "unsupported schema version");
   }
 
@@ -1974,6 +1986,7 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   std::string points_layout_name;
   std::string points_pack_name;
   std::string read_policy_name;
+  std::string analog_layout;
   int64_t valid_policy = 0;
   double residual_gate_mm = 0.0;
   double point_scale = 1.0;
@@ -1991,6 +2004,9 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
       (strict_schema && !parse_bundle_optional_name_value(meta_text, "endianness", &endianness)) ||
       (strict_schema && endianness != "little")) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "meta value parse failed");
+  }
+  if (!parse_bundle_name_value(meta_text, "analog_layout", &analog_layout) || analog_layout != "CN") {
+    return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "unsupported analog layout");
   }
   sqzc3d_DEBUG_BUNDLE_LOG(std::string("parsed read_policy_name='") + read_policy_name + "'");
 
@@ -2426,14 +2442,17 @@ sqzc3d_API int sqzc3d_analogs_view_samples(
     sqzc3d_analogs_view_t* out_view) {
   if (!chunk || !out_view || start_frame < 0 || n_frames < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
   if (start_frame > chunk->n_frames || n_frames > chunk->n_frames - start_frame) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  const int unit = chunk->n_analogs * chunk->n_analog_by_frame;
-  out_view->analog = chunk->analog ? chunk->analog + static_cast<std::size_t>(start_frame) *
-                                                     static_cast<std::size_t>(unit)
-                                   : nullptr;
+  const int source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame;
+  const int sample_start = start_frame * chunk->n_analog_by_frame;
+  out_view->analog =
+      chunk->analog ? chunk->analog + static_cast<std::size_t>(sample_start) : nullptr;
+  out_view->analog_valid =
+      chunk->analog_valid ? chunk->analog_valid + static_cast<std::size_t>(sample_start) : nullptr;
   out_view->n_frames = n_frames;
   out_view->n_analog_by_frame = chunk->n_analog_by_frame;
   out_view->n_analogs = chunk->n_analogs;
-  out_view->source_n_analogs = chunk->n_analogs;
+  out_view->n_samples = n_frames * chunk->n_analog_by_frame;
+  out_view->source_stride_samples = source_stride_samples;
   out_view->channel_indices = nullptr;
   return sqzc3d_STATUS_SUCCESS;
 }
@@ -2447,19 +2466,30 @@ sqzc3d_API int sqzc3d_analogs_view_channels(
   for (int i = 0; i < n; ++i) {
     if (channel_indices[i] < 0 || channel_indices[i] >= chunk->n_analogs) return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
-  bool identity = true;
-  for (int i = 0; i < n; ++i) {
-    if (channel_indices[i] != i) {
-      identity = false;
+  const int source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame;
+  bool contiguous = n > 0;
+  for (int i = 1; i < n; ++i) {
+    if (channel_indices[i] != channel_indices[0] + i) {
+      contiguous = false;
       break;
     }
   }
-  out_view->analog = chunk->analog;
+  out_view->analog =
+      (chunk->analog && contiguous && n > 0)
+          ? chunk->analog + static_cast<std::size_t>(channel_indices[0]) *
+                               static_cast<std::size_t>(source_stride_samples)
+          : chunk->analog;
+  out_view->analog_valid =
+      (chunk->analog_valid && contiguous && n > 0)
+          ? chunk->analog_valid + static_cast<std::size_t>(channel_indices[0]) *
+                                     static_cast<std::size_t>(source_stride_samples)
+          : chunk->analog_valid;
   out_view->n_frames = chunk->n_frames;
   out_view->n_analog_by_frame = chunk->n_analog_by_frame;
   out_view->n_analogs = n;
-  out_view->source_n_analogs = chunk->n_analogs;
-  out_view->channel_indices = identity ? nullptr : channel_indices;
+  out_view->n_samples = chunk->n_frames * chunk->n_analog_by_frame;
+  out_view->source_stride_samples = source_stride_samples;
+  out_view->channel_indices = contiguous ? nullptr : channel_indices;
   return sqzc3d_STATUS_SUCCESS;
 }
 
