@@ -15,6 +15,12 @@ CMakeFiles/
 compile_commands.json
 
 # Common generated artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
 *.exp
 *.lib
 *.pdb
