@@ -8,6 +8,14 @@
 #include <string>
 #include <vector>
 
+#if !defined(sqzc3d_WITH_EZC3D) && defined(SQZC3D_WITH_EZC3D)
+#if SQZC3D_WITH_EZC3D
+#define sqzc3d_WITH_EZC3D 1
+#else
+#define sqzc3d_WITH_EZC3D 0
+#endif
+#endif
+
 #if !defined(sqzc3d_WITH_EZC3D) || (sqzc3d_WITH_EZC3D == 0)
 namespace ezc3d {
 enum class PROCESSOR_TYPE {
@@ -45,6 +53,8 @@ struct C3dStreamMeta {
   float header_scale = 1.0f;
   double analog_scale = 1.0;
   double analog_scale_default = 1.0;
+  double analog_general_factor = 1.0;
+  std::vector<int> analog_offsets;
   std::vector<double> analog_scales;
   // Point length unit conversion:
   // - point_units_per_meter: source units per meter (derived from POINT:UNITS when available)

@@ -3,20 +3,22 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstdint>
+#include <filesystem>
 #include <cstring>
 #include <exception>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
-#include <sys/stat.h>
 #include <unordered_map>
 #include <vector>
 
 using C3dStreamReader = sqzc3d::C3dStreamReader;
 using sqzc3d_status = int;
 #if sqzc3d_WITH_EZC3D
+
 namespace {
 
 using C3dStreamMeta = sqzc3d::C3dStreamMeta;
@@ -28,19 +30,88 @@ class C3dHeaderOnly final : public ezc3d::c3d {
   void load_header_only(std::fstream& file, const std::string& file_path) {
     _filePath = file_path;
     _data.reset();
-    try {
-      _header = std::make_shared<ezc3d::Header>(*this, file);
-    } catch (const std::exception& e) {
-      throw std::runtime_error(std::string("ezc3d::Header failed: ") + e.what());
-    }
-
-    try {
-      _parameters = std::make_shared<ezc3d::ParametersNS::Parameters>(*this, file);
-    } catch (const std::exception& e) {
-      throw std::runtime_error(std::string("ezc3d::Parameters failed: ") + e.what());
-    }
+    _header = std::make_shared<ezc3d::Header>(*this, file);
+    _parameters = std::make_shared<ezc3d::ParametersNS::Parameters>(*this, file);
   }
 };
+
+static std::string sqzc3d_debug_hex_at(
+    std::fstream& file,
+    std::int64_t offset,
+    std::size_t nbytes) {
+  if (offset < 0 || nbytes == 0) return std::string();
+  const auto saved = file.tellg();
+  file.clear();
+  file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+  if (!file.good()) {
+    file.clear();
+    if (saved != std::streampos(-1)) file.seekg(saved);
+    return std::string();
+  }
+
+  std::vector<unsigned char> buf;
+  buf.resize(nbytes);
+  file.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(buf.size()));
+  const auto nread = static_cast<std::size_t>(file.gcount());
+
+  std::string out;
+  out.reserve(nread * 2);
+  char tmp[3] = {0, 0, 0};
+  for (std::size_t i = 0; i < nread; ++i) {
+    std::snprintf(tmp, sizeof(tmp), "%02x", static_cast<unsigned int>(buf[i]));
+    out.append(tmp);
+  }
+
+  file.clear();
+  if (saved != std::streampos(-1)) file.seekg(saved);
+  return out;
+}
+
+static std::string sqzc3d_debug_probe_params_layout(std::fstream& file) {
+  const auto saved = file.tellg();
+
+  std::int64_t zeros = 0;
+  unsigned int paddr = 0;
+  file.clear();
+  file.seekg(0, std::ios::beg);
+  for (;;) {
+    char c = 0;
+    file.read(&c, 1);
+    if (!file.good()) break;
+    paddr = static_cast<unsigned int>(static_cast<unsigned char>(c));
+    if (paddr != 0u) break;
+    ++zeros;
+    if (zeros > 4096) break;
+  }
+
+  const std::int64_t off_a =
+      static_cast<std::int64_t>(paddr > 0u ? (paddr - 1u) : 0u) * 512 + zeros;
+  const std::int64_t off_b = static_cast<std::int64_t>(paddr) * 512 + zeros;
+
+  const auto head0 = sqzc3d_debug_hex_at(file, 0, 16);
+  const auto headz = (zeros > 0) ? sqzc3d_debug_hex_at(file, zeros, 16) : std::string();
+  const auto par_a = sqzc3d_debug_hex_at(file, off_a, 16);
+  const auto par_b = sqzc3d_debug_hex_at(file, off_b, 16);
+
+  file.clear();
+  if (saved != std::streampos(-1)) file.seekg(saved);
+
+  char msg[512];
+  std::snprintf(
+      msg,
+      sizeof(msg),
+      " | probe:char_signed=%d paddr=%u zeros=%lld offA=%lld offB=%lld head0=%s headZ=%s parA=%s parB=%s",
+      std::numeric_limits<char>::is_signed ? 1 : 0,
+      paddr,
+      static_cast<long long>(zeros),
+      static_cast<long long>(off_a),
+      static_cast<long long>(off_b),
+      head0.c_str(),
+      headz.c_str(),
+      par_a.c_str(),
+      par_b.c_str());
+  return std::string(msg);
+}
 
 static bool is_finite_xyz(sqzc3d_num_t x, sqzc3d_num_t y, sqzc3d_num_t z) {
   return x == x && x != std::numeric_limits<sqzc3d_num_t>::infinity() &&
@@ -78,6 +149,25 @@ static std::string normalize_unit_token(const std::string& raw) {
   for (unsigned char ch : trimmed) {
     if (std::isspace(ch)) continue;
     out.push_back(static_cast<char>(std::tolower(ch)));
+  }
+  return out;
+}
+
+static std::vector<std::string> collect_contiguous_char_parameter(
+    const ezc3d::ParametersNS::GroupNS::Group& g,
+    const char* base) {
+  std::vector<std::string> out;
+  for (int i = 1;; ++i) {
+    std::string name(base);
+    if (i > 1) {
+      name += std::to_string(i);
+    }
+    if (!g.isParameter(name)) break;
+    const auto& p = g.parameter(name);
+    if (p.type() == ezc3d::DATA_TYPE::CHAR) {
+      const auto values = p.valuesAsString();
+      out.insert(out.end(), values.begin(), values.end());
+    }
   }
   return out;
 }
@@ -293,7 +383,17 @@ static sqzc3d_status read_analog_record(
 
   const auto& meta = reader->meta;
   if (meta.analog_record_bytes == 4) {
-    *out_value = static_cast<sqzc3d_num_t>(reader->c3d->readFloat(meta.processor_type, file));
+    double scale = meta.analog_scale_default;
+    if (analog_idx >= 0 && analog_idx < static_cast<int>(meta.analog_scales.size())) {
+      scale = meta.analog_scales[static_cast<std::size_t>(analog_idx)];
+    }
+    double analog_offset = 0.0;
+    if (analog_idx >= 0 && analog_idx < static_cast<int>(meta.analog_offsets.size())) {
+      analog_offset = static_cast<double>(meta.analog_offsets[static_cast<std::size_t>(analog_idx)]);
+    }
+    *out_value = static_cast<sqzc3d_num_t>(
+        (static_cast<float>(reader->c3d->readFloat(meta.processor_type, file)) - analog_offset) *
+        scale * meta.analog_general_factor);
     return sqzc3d_STATUS_SUCCESS;
   }
   if (meta.analog_record_bytes != 2) {
@@ -303,9 +403,13 @@ static sqzc3d_status read_analog_record(
   if (analog_idx >= 0 && analog_idx < static_cast<int>(meta.analog_scales.size())) {
     scale = meta.analog_scales[static_cast<std::size_t>(analog_idx)];
   }
+  const double analog_offset =
+      (analog_idx >= 0 && analog_idx < static_cast<int>(meta.analog_offsets.size()))
+          ? static_cast<double>(meta.analog_offsets[static_cast<std::size_t>(analog_idx)])
+          : 0.0;
   *out_value = static_cast<sqzc3d_num_t>(
-      static_cast<float>(reader->c3d->readInt(meta.processor_type, file, 2)) *
-      static_cast<sqzc3d_num_t>(scale));
+      (static_cast<float>(reader->c3d->readInt(meta.processor_type, file, 2)) - analog_offset) *
+      static_cast<sqzc3d_num_t>(scale) * static_cast<sqzc3d_num_t>(meta.analog_general_factor));
   return sqzc3d_STATUS_SUCCESS;
 }
 
@@ -401,22 +505,14 @@ static void load_labels(const C3dStreamReader* source, C3dStreamReader* out) {
 
   if (params.isGroup("POINT")) {
     const auto& g = params.group("POINT");
-    if (g.isParameter("LABELS")) {
-      const auto& p = g.parameter("LABELS");
-      if (p.type() == ezc3d::DATA_TYPE::CHAR) {
-        out->point_labels.assign(p.valuesAsString().begin(), p.valuesAsString().end());
-      }
-    }
+    const auto point_labels = collect_contiguous_char_parameter(g, "LABELS");
+    out->point_labels = point_labels;
   }
 
   if (params.isGroup("ANALOG")) {
     const auto& g = params.group("ANALOG");
-    if (g.isParameter("LABELS")) {
-      const auto& p = g.parameter("LABELS");
-      if (p.type() == ezc3d::DATA_TYPE::CHAR) {
-        out->analog_labels.assign(p.valuesAsString().begin(), p.valuesAsString().end());
-      }
-    }
+    const auto analog_labels = collect_contiguous_char_parameter(g, "LABELS");
+    out->analog_labels = analog_labels;
   }
 }
 
@@ -522,8 +618,9 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
   const char* phase = "init";
 
   try {
-    phase = "open";
-    reader->file.open(file_path, std::ios::in | std::ios::binary);
+    phase = "open_stream";
+    const auto fs_path = std::filesystem::u8path(file_path);
+    reader->file.open(fs_path, std::ios::in | std::ios::binary);
     if (!reader->file.is_open()) {
       fprintf(stderr, "[sqzc3d] ERROR: failed to open C3D file: %s\n", file_path);
       return sqzc3d_STATUS_INVALID_ARGUMENT;
@@ -535,7 +632,15 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     try {
       c3d->load_header_only(reader->file, file_path);
     } catch (const std::exception& e) {
-      throw std::runtime_error(std::string("sqzc3d_c3d_stream_open_file: header-only parse failed: ") + e.what());
+      std::string probe;
+      try {
+        probe = sqzc3d_debug_probe_params_layout(reader->file);
+      } catch (...) {
+        probe.clear();
+      }
+      throw std::runtime_error(
+          std::string("sqzc3d_c3d_stream_open_file: header-only parse failed: ") + e.what() +
+          probe);
     }
     reader->file.clear();
     reader->file.seekg(0, std::ios::beg);
@@ -543,13 +648,14 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     phase = "check_point";
     if (!c3d->parameters().isGroup("POINT")) {
       fprintf(stderr,
-              "[sqzc3d] WARNING: C3D file has no POINT group in header-only parse: %s\n",
+              "[sqzc3d] WARNING: C3D file has no POINT group: %s\n",
               file_path);
     }
 
     C3dStreamMeta meta{};
     C3dStreamMeta tmp{};
     bool has_point_units_param = false;
+    bool has_shadow_group = false;
     std::string point_units_token;
     phase = "meta";
     try {
@@ -557,6 +663,8 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       normalize_processor_type(tmp.processor_type);
       tmp.header_scale = c3d->header().scaleFactor();
       tmp.point_scale = static_cast<double>(tmp.header_scale);
+      int analog_record_bytes = (tmp.header_scale < 0.0) ? 4 : 2;
+      has_shadow_group = c3d->parameters().isGroup("SHADOW");
 
       if (c3d->parameters().isGroup("POINT")) {
         const auto& g = c3d->parameters().group("POINT");
@@ -564,35 +672,45 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
           const auto& v = g.parameter("SCALE").valuesAsDouble();
           if (!v.empty()) tmp.point_scale = v[0];
         }
-        if (g.isParameter("UNITS")) {
+        const auto units_values = collect_contiguous_char_parameter(g, "UNITS");
+        if (!units_values.empty()) {
           has_point_units_param = true;
-          const auto& u = g.parameter("UNITS");
-          if (u.type() == ezc3d::DATA_TYPE::CHAR) {
-            const auto values = u.valuesAsString();
-            if (!values.empty()) {
-              point_units_token = values[0];
-              tmp.point_units_per_meter = units_per_meter_from_unit_token(point_units_token);
-            }
-          }
+          point_units_token = units_values[0];
+          tmp.point_units_per_meter = units_per_meter_from_unit_token(point_units_token);
         }
       }
+
       if (c3d->parameters().isGroup("ANALOG")) {
         const auto& g = c3d->parameters().group("ANALOG");
         if (g.isParameter("SCALE")) {
           const auto& v = g.parameter("SCALE").valuesAsDouble();
           if (!v.empty()) tmp.analog_scale = v[0];
-          if (!v.empty()) {
-            tmp.analog_scales.assign(v.begin(), v.end());
+          if (!v.empty()) tmp.analog_scales.assign(v.begin(), v.end());
+        }
+        if (g.isParameter("GEN_SCALE")) {
+          const auto& gv = g.parameter("GEN_SCALE").valuesAsDouble();
+          if (!gv.empty() && std::isfinite(gv[0])) {
+            tmp.analog_general_factor = gv[0];
+          }
+        }
+        const auto& c3d_scale = c3d->channelScales();
+        if (!c3d_scale.empty()) tmp.analog_scales.assign(c3d_scale.begin(), c3d_scale.end());
+        const auto& c3d_offsets = c3d->channelOffsets();
+        if (!c3d_offsets.empty()) {
+          tmp.analog_offsets.clear();
+          tmp.analog_offsets.reserve(c3d_offsets.size());
+          for (int offset : c3d_offsets) {
+            tmp.analog_offsets.push_back(std::abs(offset));
           }
         }
       }
+      tmp.analog_record_bytes = analog_record_bytes;
     } catch (const std::exception& e) {
       throw std::runtime_error(
           std::string("sqzc3d_c3d_stream_open_file: meta parse failed: ") + e.what());
     }
 
-    // Default target unit is meters (units_per_meter = 1.0).
-    tmp.target_units_per_meter = 1.0;
+    // By default, expose point coordinates in meters.
     if (!(tmp.point_units_per_meter > 0.0) || !std::isfinite(tmp.point_units_per_meter)) {
       // C3D files typically use mm; treat missing/unknown units as mm for robustness.
       tmp.point_units_per_meter = 1000.0;
@@ -612,11 +730,20 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     } else {
       tmp.point_units_source = 0;
     }
-    tmp.point_unit_scale = tmp.target_units_per_meter / tmp.point_units_per_meter;
+    tmp.target_units_per_meter = 1.0;
+    tmp.point_unit_scale = 1.0 / tmp.point_units_per_meter;
 
     tmp.n_points = static_cast<int>(c3d->header().nb3dPoints());
     tmp.n_analogs = static_cast<int>(c3d->header().nbAnalogs());
     tmp.n_analog_by_frame = static_cast<int>(c3d->header().nbAnalogByFrame());
+    if (tmp.n_analogs > 0 && has_shadow_group) {
+      if (tmp.analog_scales.empty()) {
+        tmp.analog_scales.assign(tmp.n_analogs, 1.0);
+      }
+      if (tmp.analog_offsets.empty()) {
+        tmp.analog_offsets.assign(tmp.n_analogs, 0);
+      }
+    }
     tmp.analog_scale_default = tmp.analog_scale;
     if (tmp.analog_scales.empty()) {
       tmp.analog_scales.assign(std::max(tmp.n_analogs, 1), tmp.analog_scale_default);
@@ -625,9 +752,18 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     } else if (static_cast<int>(tmp.analog_scales.size()) < tmp.n_analogs && tmp.n_analogs > 0) {
       tmp.analog_scales.resize(static_cast<std::size_t>(tmp.n_analogs), tmp.analog_scale_default);
     }
+    if (tmp.analog_offsets.empty()) {
+      tmp.analog_offsets.assign(std::max(tmp.n_analogs, 0), 0);
+    } else if (static_cast<int>(tmp.analog_offsets.size()) > tmp.n_analogs) {
+      tmp.analog_offsets.resize(static_cast<std::size_t>(tmp.n_analogs));
+    } else if (static_cast<int>(tmp.analog_offsets.size()) < tmp.n_analogs && tmp.n_analogs > 0) {
+      tmp.analog_offsets.resize(static_cast<std::size_t>(tmp.n_analogs), 0);
+    }
+    if (!std::isfinite(tmp.analog_general_factor)) {
+      tmp.analog_general_factor = 1.0;
+    }
     tmp.point_record_scalar = (tmp.point_scale < 0.0) ? 2 : 1;
     tmp.point_record_bytes = (tmp.point_record_scalar == 2) ? 16 : 8;
-    tmp.analog_record_bytes = (tmp.header_scale < 0.0f) ? 4 : 2;
     tmp.data_start_bytes = static_cast<std::int64_t>(c3d->header().dataStart() - 1) * 512;
 
     const auto points_bytes = static_cast<std::int64_t>(tmp.n_points) * static_cast<std::int64_t>(tmp.point_record_bytes);
@@ -641,16 +777,31 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     }
     tmp.frame_bytes = static_cast<int>(frame_bytes);
 
-    // Prefer file-size-derived frame count for robustness in header-only mode.
-    // Some C3D dialects report inconsistent first/last frame indices in the header, while
-    // the data section size is authoritative once we know `data_start_bytes` and `frame_bytes`.
-    //
-    // However, some environments may not support reliable stream size queries (`seekg/tellg` can
-    // fail). Fall back to the header-reported frame count in that case.
+    // Prefer frame count from header first/last indices.
+    // Special case: nbFrames==0xFFFF without rotational data means "read until EOF".
+    const auto has_rotational = c3d->header().hasRotationalData();
+    const bool all_of_file_frames =
+        (c3d->header().nbFrames() == 0xFFFF && !has_rotational);
     int frames = 0;
     {
-      const auto header_frames = c3d->header().nbFrames();
-      if (header_frames > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      const auto first_frame = c3d->header().firstFrame();
+      const auto last_frame = c3d->header().lastFrame();
+      std::size_t header_frames = 0;
+      if (!all_of_file_frames) {
+        if (last_frame > first_frame || (first_frame == 0 && last_frame == 0)) {
+          header_frames = last_frame - first_frame + 1;
+        } else if (last_frame >= first_frame) {
+          header_frames = last_frame - first_frame + 1;
+        }
+        if (header_frames == 0) {
+          header_frames = c3d->header().nbFrames();
+        }
+      } else {
+        // Keep this as a plausible initial value; it will be replaced
+        // by file-size-based frame count below.
+        header_frames = last_frame - first_frame + 1;
+      }
+      if (header_frames > std::numeric_limits<int>::max()) {
         return sqzc3d_STATUS_INVALID_ARGUMENT;
       }
       frames = static_cast<int>(header_frames);
@@ -658,9 +809,10 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
 
     std::int64_t file_bytes = -1;
     {
-      struct stat st {};
-      if (stat(file_path, &st) == 0 && st.st_size >= 0) {
-        file_bytes = static_cast<std::int64_t>(st.st_size);
+      std::error_code ec;
+      const auto file_size = std::filesystem::file_size(fs_path, ec);
+      if (!ec) {
+        file_bytes = static_cast<std::int64_t>(static_cast<std::uintmax_t>(file_size));
       }
     }
     if (file_bytes < 0) {
@@ -677,11 +829,19 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     if (file_bytes > tmp.data_start_bytes && tmp.frame_bytes > 0) {
       const std::int64_t data_bytes = file_bytes - tmp.data_start_bytes;
       const std::int64_t frames_by_size = data_bytes / static_cast<std::int64_t>(tmp.frame_bytes);
-      if (frames_by_size > 0 && frames_by_size <= std::numeric_limits<int>::max()) {
-        frames = static_cast<int>(frames_by_size);
+      if (frames_by_size >= 0 && frames_by_size <= std::numeric_limits<int>::max()) {
+        if (!all_of_file_frames) {
+          if (frames_by_size < static_cast<std::int64_t>(frames)) {
+            frames = static_cast<int>(frames_by_size);
+          }
+        } else {
+          frames = static_cast<int>(frames_by_size);
+        }
       }
+    } else {
+      frames = 0;
     }
-    if (frames <= 0) {
+    if (frames < 0) {
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
     tmp.n_frames = frames;
@@ -706,10 +866,12 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     reader->c3d.reset();
     return sqzc3d_STATUS_INTERNAL_ERROR;
   } catch (const std::exception& e) {
+    const int char_signed = std::numeric_limits<char>::is_signed ? 1 : 0;
     fprintf(stderr,
-            "[sqzc3d] ERROR: exception while opening C3D (%s) [phase=%s]: %s\n",
+            "[sqzc3d] ERROR: exception while opening C3D (%s) [phase=%s] char_signed=%d: %s\n",
             file_path,
             phase ? phase : "unknown",
+            char_signed,
             e.what());
     if (c3d) {
       try {

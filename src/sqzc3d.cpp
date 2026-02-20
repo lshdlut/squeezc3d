@@ -1122,51 +1122,66 @@ sqzc3d_API int sqzc3d_open_file(
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
   sqzc3d_open_opt_t opt_v{};
-  if (!opt) {
-    sqzc3d_default_open_opt(&opt_v);
-    opt = &opt_v;
-  }
-  if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
-    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file: opt struct_size too small", "sqzc3d_open_file");
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+  sqzc3d_default_open_opt(&opt_v);
+  const sqzc3d_open_opt_t* opt_in = opt;
+  if (opt && opt->struct_size <= 0) {
+    opt_in = &opt_v;
+  } else if (opt) {
+    if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file: opt struct_size too small", "sqzc3d_open_file");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+    opt_v = *opt;
+  } else {
+    opt_in = &opt_v;
   }
   *out_dec = nullptr;
-  auto* dec = new (std::nothrow) sqzc3d_dec_t{};
-  if (!dec) return sqzc3d_STATUS_INTERNAL_ERROR;
-  dec->impl = nullptr;
-  dec->last_error = kArgError;
-  auto impl = std::make_unique<sqzc3dDec>();
-  impl->reader = std::make_unique<C3dStreamReader>();
-  const int label_norm = (opt->label_norm > 0)
-                            ? (opt->label_norm & (sqzc3d_LABEL_NORM_EXACT |
-                                                 sqzc3d_LABEL_NORM_TRIM |
-                                                 sqzc3d_LABEL_NORM_CASEFOLD_WS))
-                            : sqzc3d_LABEL_NORM_EXACT;
-  impl->label_norm = label_norm;
-  if (opt->open_mode != sqzc3d_FILE) {
-    set_error(dec, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file called with non-file open_mode", "sqzc3d_open_file");
-    delete dec;
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
-  }
-  const int open_st = sqzc3d::sqzc3d_c3d_stream_open_file(
-      impl->reader.get(), file_path, opt->preserve_raw_params != 0);
-  if (open_st != sqzc3d_STATUS_SUCCESS) {
-    const std::string msg = "failed to open c3d file: " + std::string(file_path);
-    set_error(dec, open_st, msg, "sqzc3d_open_file");
-    delete dec;
-    return open_st;
-  }
-  dec->impl = impl.release();
-  *out_dec = dec;
-  if (opt->cache_labels == 0) {
-    auto* impl_out = static_cast<sqzc3dDec*>(dec->impl);
-    if (impl_out && impl_out->reader) {
-      impl_out->reader->point_labels.clear();
-      impl_out->reader->analog_labels.clear();
+  auto* dec_raw = new (std::nothrow) sqzc3d_dec_t{};
+  if (!dec_raw) return sqzc3d_STATUS_INTERNAL_ERROR;
+  std::unique_ptr<sqzc3d_dec_t> dec(dec_raw);
+  try {
+    dec->impl = nullptr;
+    dec->last_error = kArgError;
+    auto impl = std::make_unique<sqzc3dDec>();
+    impl->reader = std::make_unique<C3dStreamReader>();
+    const int label_norm = (opt_in->label_norm > 0)
+                          ? (opt_in->label_norm & (sqzc3d_LABEL_NORM_EXACT |
+                                                   sqzc3d_LABEL_NORM_TRIM |
+                                                   sqzc3d_LABEL_NORM_CASEFOLD_WS))
+                          : sqzc3d_LABEL_NORM_EXACT;
+    impl->label_norm = label_norm;
+    if (opt_in->open_mode != sqzc3d_FILE) {
+      set_error(dec.get(), sqzc3d_STATUS_INVALID_ARGUMENT, "open_file called with non-file open_mode", "sqzc3d_open_file");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
+    const int open_st = sqzc3d::sqzc3d_c3d_stream_open_file(
+        impl->reader.get(), file_path, opt_in->preserve_raw_params != 0);
+    if (open_st != sqzc3d_STATUS_SUCCESS) {
+      const std::string msg = "failed to open c3d file: " + std::string(file_path);
+      set_error(dec.get(), open_st, msg, "sqzc3d_open_file");
+      return open_st;
+    }
+    dec->impl = impl.release();
+    if (opt_in->cache_labels == 0) {
+      auto* impl_out = static_cast<sqzc3dDec*>(dec->impl);
+      if (impl_out && impl_out->reader) {
+        impl_out->reader->point_labels.clear();
+        impl_out->reader->analog_labels.clear();
+      }
+    }
+    reset_error(dec.get());
+    *out_dec = dec.release();
+    return sqzc3d_STATUS_SUCCESS;
+  } catch (const std::bad_alloc&) {
+    set_error(dec.get(), sqzc3d_STATUS_INTERNAL_ERROR, "open_file: bad_alloc", "sqzc3d_open_file");
+    return sqzc3d_STATUS_INTERNAL_ERROR;
+  } catch (const std::exception& e) {
+    set_error(dec.get(), sqzc3d_STATUS_INTERNAL_ERROR, std::string("open_file: exception: ") + e.what(), "sqzc3d_open_file");
+    return sqzc3d_STATUS_INTERNAL_ERROR;
+  } catch (...) {
+    set_error(dec.get(), sqzc3d_STATUS_INTERNAL_ERROR, "open_file: unknown exception", "sqzc3d_open_file");
+    return sqzc3d_STATUS_INTERNAL_ERROR;
   }
-  reset_error(dec);
-  return sqzc3d_STATUS_SUCCESS;
 }
 
 sqzc3d_API int sqzc3d_open_memory(
@@ -1187,67 +1202,134 @@ sqzc3d_API int sqzc3d_open_memory(
   }
   *out_dec = nullptr;
   sqzc3d_open_opt_t opt_v{};
-  if (!opt) {
-    sqzc3d_default_open_opt(&opt_v);
-    opt = &opt_v;
+  sqzc3d_default_open_opt(&opt_v);
+  const sqzc3d_open_opt_t* opt_in = opt;
+  if (opt && opt->struct_size <= 0) {
+    opt_in = &opt_v;
+  } else if (opt) {
+    if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: opt struct_size too small", "sqzc3d_open_memory");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+    opt_v = *opt;
+  } else {
+    opt_in = &opt_v;
   }
-  if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+  if (opt_in->struct_size > 0 &&
+      opt_in->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
     set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: opt struct_size too small", "sqzc3d_open_memory");
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
 
-  const auto* bytes = static_cast<const char*>(data);
-  std::error_code ec;
-  const auto tmp_dir = std::filesystem::temp_directory_path(ec);
-  if (ec) {
-    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT,
-              "open_memory: temp_directory_path failed: " + ec.message(),
-              "sqzc3d_open_memory");
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
-  }
   std::filesystem::path tmp_path;
-  for (int attempt = 0; attempt < 32; ++attempt) {
-    tmp_path = make_unique_tmp_c3d_path(tmp_dir);
-    if (!std::filesystem::exists(tmp_path, ec)) break;
-    ec.clear();
-    tmp_path.clear();
-  }
-  if (tmp_path.empty()) {
-    set_error(nullptr, sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: failed to allocate temp path", "sqzc3d_open_memory");
+  try {
+    const auto* bytes = static_cast<const char*>(data);
+    std::error_code ec;
+    const auto tmp_dir = std::filesystem::temp_directory_path(ec);
+    if (ec || tmp_dir.empty()) {
+      set_error(nullptr,
+                sqzc3d_STATUS_INVALID_ARGUMENT,
+                std::string("open_memory: temp_directory_path failed: ") +
+                    (ec ? ec.message() : std::string("invalid temp path")),
+                "sqzc3d_open_memory");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+    if (!std::filesystem::exists(tmp_dir, ec)) {
+      set_error(nullptr,
+                sqzc3d_STATUS_INVALID_ARGUMENT,
+                "open_memory: temp directory does not exist",
+                "sqzc3d_open_memory");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+
+    bool temp_written = false;
+    for (int attempt = 0; attempt < 32; ++attempt) {
+      tmp_path = make_unique_tmp_c3d_path(tmp_dir);
+      if (std::filesystem::exists(tmp_path, ec)) continue;
+
+      std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
+      if (!ofs) {
+        continue;
+      }
+      ofs.write(bytes, static_cast<std::streamsize>(n_bytes));
+      if (!ofs.good()) {
+        std::filesystem::remove(tmp_path, ec);
+        tmp_path.clear();
+        continue;
+      }
+      ofs.close();
+      temp_written = true;
+      break;
+    }
+    if (!temp_written) {
+      set_error(nullptr,
+                sqzc3d_STATUS_INVALID_ARGUMENT,
+                "open_memory: failed to create/write temp file",
+                "sqzc3d_open_memory");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+
+    sqzc3d_open_opt_t open_file_opt = *opt_in;
+    open_file_opt.open_mode = sqzc3d_FILE;
+    const int st = sqzc3d_open_file(out_dec, tmp_path.string().c_str(), &open_file_opt);
+    if (st != sqzc3d_STATUS_SUCCESS) {
+      const char* open_file_error = sqzc3d_last_error(nullptr);
+      std::string err_msg = std::string("open_memory: open_file failed, path=") + tmp_path.string();
+      if (open_file_error && *open_file_error) {
+        err_msg += "; reason=" + std::string(open_file_error);
+      }
+      set_error(nullptr, st, err_msg, "sqzc3d_open_memory");
+      std::error_code ec_rm;
+      std::filesystem::remove(tmp_path, ec_rm);
+      tmp_path.clear();
+      return st;
+    }
+    auto* impl = static_cast<sqzc3dDec*>((*out_dec)->impl);
+    impl->temp_path = tmp_path.string();
+    const int label_norm = (opt_in->label_norm > 0)
+                              ? (opt_in->label_norm & (sqzc3d_LABEL_NORM_EXACT |
+                                                       sqzc3d_LABEL_NORM_TRIM |
+                                                       sqzc3d_LABEL_NORM_CASEFOLD_WS))
+                              : sqzc3d_LABEL_NORM_EXACT;
+    impl->label_norm = label_norm;
+    return sqzc3d_STATUS_SUCCESS;
+  } catch (const std::bad_alloc&) {
+    if (out_dec && *out_dec) {
+      sqzc3d_close_dec(*out_dec);
+      *out_dec = nullptr;
+    }
+    if (!tmp_path.empty()) {
+      std::error_code ec_rm;
+      std::filesystem::remove(tmp_path, ec_rm);
+    }
+    set_error(nullptr, sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: bad_alloc", "sqzc3d_open_memory");
+    return sqzc3d_STATUS_INTERNAL_ERROR;
+  } catch (const std::exception& e) {
+    if (out_dec && *out_dec) {
+      sqzc3d_close_dec(*out_dec);
+      *out_dec = nullptr;
+    }
+    if (!tmp_path.empty()) {
+      std::error_code ec_rm;
+      std::filesystem::remove(tmp_path, ec_rm);
+    }
+    set_error(nullptr,
+              sqzc3d_STATUS_INTERNAL_ERROR,
+              std::string("open_memory: exception: ") + e.what(),
+              "sqzc3d_open_memory");
+    return sqzc3d_STATUS_INTERNAL_ERROR;
+  } catch (...) {
+    if (out_dec && *out_dec) {
+      sqzc3d_close_dec(*out_dec);
+      *out_dec = nullptr;
+    }
+    if (!tmp_path.empty()) {
+      std::error_code ec_rm;
+      std::filesystem::remove(tmp_path, ec_rm);
+    }
+    set_error(nullptr, sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: unknown exception", "sqzc3d_open_memory");
     return sqzc3d_STATUS_INTERNAL_ERROR;
   }
-  {
-    std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
-    if (!ofs) {
-      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: failed to create temp file", "sqzc3d_open_memory");
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
-    }
-    ofs.write(bytes, static_cast<std::streamsize>(n_bytes));
-    if (!ofs.good()) {
-      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: failed to write temp file", "sqzc3d_open_memory");
-      std::error_code ec;
-      std::filesystem::remove(tmp_path, ec);
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
-    }
-  }
-
-  sqzc3d_open_opt_t open_file_opt = *opt;
-  open_file_opt.open_mode = sqzc3d_FILE;
-  const int st = sqzc3d_open_file(out_dec, tmp_path.string().c_str(), &open_file_opt);
-  if (st != sqzc3d_STATUS_SUCCESS) {
-    std::error_code ec;
-    std::filesystem::remove(tmp_path, ec);
-    return st;
-  }
-  auto* impl = static_cast<sqzc3dDec*>((*out_dec)->impl);
-  impl->temp_path = tmp_path.string();
-  const int label_norm = (opt->label_norm > 0)
-                            ? (opt->label_norm & (sqzc3d_LABEL_NORM_EXACT |
-                                                 sqzc3d_LABEL_NORM_TRIM |
-                                                 sqzc3d_LABEL_NORM_CASEFOLD_WS))
-                            : sqzc3d_LABEL_NORM_EXACT;
-  impl->label_norm = label_norm;
-  return sqzc3d_STATUS_SUCCESS;
 }
 
 sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec) {
@@ -1301,7 +1383,8 @@ sqzc3d_API int sqzc3d_build_chunks(
   int analog_range_count = opt->analog_range.count;
   int analog_range_start = opt->analog_range.start;
   if (!normalize_range(meta.n_frames, analog_range_start, analog_range_count, &analog_range_start, &analog_range_count)) {
-    analog_range_count = frame_count;
+    set_error(const_cast<sqzc3d_dec_t*>(dec), sqzc3d_STATUS_INVALID_ARGUMENT, "invalid analog range", "sqzc3d_build_chunks");
+    return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
 
   auto chunk = new (std::nothrow) sqzc3d_chunk_t();
@@ -1401,9 +1484,60 @@ sqzc3d_API int sqzc3d_build_chunks(
     }
   }
 
+  // POINT:TYPE_GROUPS / group params are indexed in the *source* point index space.
+  // When we build a chunk with point selection, we must remap those indices into the
+  // chunk-local [0..n_points) index space, otherwise exported bundles can become
+  // unloadable (DIMENSION_MISMATCH) for subset selections.
   chunk_impl->type_group_name_storage = dec_impl->reader->type_group_names;
-  chunk_impl->type_group_starts_storage = dec_impl->reader->type_group_starts;
-  chunk_impl->type_group_indices_storage = dec_impl->reader->type_group_indices;
+  const auto& src_type_group_starts = dec_impl->reader->type_group_starts;
+  const auto& src_type_group_indices = dec_impl->reader->type_group_indices;
+  chunk_impl->type_group_starts_storage.clear();
+  chunk_impl->type_group_indices_storage.clear();
+  if (!chunk_impl->type_group_name_storage.empty() &&
+      static_cast<std::size_t>(chunk_impl->type_group_name_storage.size() + 1u) == src_type_group_starts.size()) {
+    const int n_points_total = meta.n_points;
+    const int n_points_sel = static_cast<int>(point_indices.size());
+    // Build an index mapping from original point index -> list of selected local indices.
+    // Using a linked-list per original index avoids allocating many vectors.
+    std::vector<int> head;
+    head.assign(static_cast<std::size_t>(n_points_total), -1);
+    std::vector<int> next;
+    next.assign(static_cast<std::size_t>(n_points_sel), -1);
+    for (int local = n_points_sel - 1; local >= 0; --local) {
+      const int orig = point_indices[static_cast<std::size_t>(local)];
+      if (orig < 0 || orig >= n_points_total) continue;
+      next[static_cast<std::size_t>(local)] = head[static_cast<std::size_t>(orig)];
+      head[static_cast<std::size_t>(orig)] = local;
+    }
+
+    chunk_impl->type_group_starts_storage.resize(src_type_group_starts.size(), 0);
+    chunk_impl->type_group_starts_storage[0] = 0;
+    for (std::size_t g = 0; g < chunk_impl->type_group_name_storage.size(); ++g) {
+      const int s = src_type_group_starts[g];
+      const int e = src_type_group_starts[g + 1u];
+      if (s < 0 || e < s || e > static_cast<int>(src_type_group_indices.size())) {
+        // Malformed source metadata; keep groups but empty their indices.
+        chunk_impl->type_group_starts_storage[g + 1u] =
+            static_cast<int>(chunk_impl->type_group_indices_storage.size());
+        continue;
+      }
+      for (int k = s; k < e; ++k) {
+        const int orig = src_type_group_indices[static_cast<std::size_t>(k)];
+        if (orig < 0 || orig >= n_points_total) continue;
+        for (int local = head[static_cast<std::size_t>(orig)]; local >= 0;
+             local = next[static_cast<std::size_t>(local)]) {
+          chunk_impl->type_group_indices_storage.push_back(local);
+        }
+      }
+      chunk_impl->type_group_starts_storage[g + 1u] =
+          static_cast<int>(chunk_impl->type_group_indices_storage.size());
+    }
+  } else {
+    // Preserve original metadata for full-point (identity) chunks or for chunks without type group names.
+    // If type_group_names is empty, starts may still contain a single "0" sentinel from the reader; that's fine.
+    chunk_impl->type_group_starts_storage = src_type_group_starts;
+    chunk_impl->type_group_indices_storage = src_type_group_indices;
+  }
   if (!chunk_impl->type_group_name_storage.empty()) {
     chunk_impl->type_group_name_ptrs.resize(chunk_impl->type_group_name_storage.size());
     for (std::size_t i = 0; i < chunk_impl->type_group_name_storage.size(); ++i) {
