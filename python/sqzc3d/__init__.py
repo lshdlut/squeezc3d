@@ -4,10 +4,12 @@ from __future__ import annotations
 
 __version__ = "0.2.0"
 
+_core_import_error = None
 try:
     from . import _core as _core
-except ImportError:
+except ImportError as e:
     _core = None
+    _core_import_error = e
 
 if _core is not None:
     __version__ = _core.version()
@@ -59,8 +61,11 @@ else:
 def __getattr__(name: str):
     if _core is not None:
         raise AttributeError(name)
-    raise ImportError(
+    msg = (
         "sqzc3d native bindings are not available in this build. "
         "If you are developing from source, build/install the package so the compiled extension is present. "
         "Track progress at https://github.com/lshdlut/squeezc3d."
     )
+    if _core_import_error is not None:
+        msg += f" Original import error: {_core_import_error}"
+    raise ImportError(msg) from _core_import_error

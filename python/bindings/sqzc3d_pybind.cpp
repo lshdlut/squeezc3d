@@ -5,6 +5,7 @@
 #include <pybind11/stl.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -446,7 +447,8 @@ struct PyChunk {
     const py::ssize_t c = static_cast<py::ssize_t>(view.n_analogs);
     const py::ssize_t t = static_cast<py::ssize_t>(view.n_frames);
     const py::ssize_t s = static_cast<py::ssize_t>(view.n_analog_by_frame);
-    const py::ssize_t n = static_cast<py::ssize_t>(view.n_samples);
+    const py::ssize_t n =
+        (c == 0 && view.n_samples == 0) ? (view.n_analog_by_frame > 0 ? 1 : 0) : static_cast<py::ssize_t>(view.n_samples);
     const py::ssize_t source_stride_samples = static_cast<py::ssize_t>(view.source_stride_samples);
 
     if (tcs) {
@@ -539,7 +541,7 @@ struct PyChunk {
     out["n_points"] = chunk->n_points;
     out["n_points_total"] = chunk->n_points_total;
     out["n_analogs"] = chunk->n_analogs;
-    out["n_analog_by_frame"] = chunk->n_analog_by_frame;
+    out["n_analog_by_frame"] = (chunk->n_analogs > 0) ? chunk->n_analog_by_frame : 0;
     out["n_scalar"] = chunk->n_scalar;
     out["valid_nscalar"] = chunk->valid_nscalar;
     out["n_analog_scalar"] = chunk->n_analog_scalar;
@@ -610,17 +612,6 @@ struct PyChunk {
 };
 
 #if sqzc3d_WITH_EZC3D
-class C3dHeaderOnly final : public ezc3d::c3d {
- public:
-  C3dHeaderOnly() = default;
-  void load_header_only(std::fstream& file, const std::string& file_path) {
-    _filePath = file_path;
-    _data.reset();
-    _header = std::make_shared<ezc3d::Header>(*this, file);
-    _parameters = std::make_shared<ezc3d::ParametersNS::Parameters>(*this, file);
-  }
-};
-
 template <typename ParameterT>
 py::dict EzcParameterToDict(const ParameterT& parameter) {
   py::dict out;
@@ -644,23 +635,38 @@ py::dict EzcParameterToDict(const ParameterT& parameter) {
   return out;
 }
 
-py::dict ParseMetaTreeFromSource(const std::string& path) {
+py::dict ParseMetaTreeFromSource(const std::string& path, const std::int64_t point_frames_override) {
   py::dict out;
-  std::fstream file(path, std::ios::binary | std::ios::in);
-  if (!file.is_open()) {
-    throw std::runtime_error("failed to open file for meta_tree: " + path);
+  const auto adjust_point_frames = [](const std::string& name, py::dict& parameter, const std::int64_t frame_count) {
+    if (frame_count <= 0 || name != "FRAMES") {
+      return;
+    }
+    if (!parameter.contains("values")) {
+      return;
+    }
+    py::list values;
+    values.append(frame_count);
+    parameter["values"] = values;
+  };
+  std::unique_ptr<ezc3d::c3d> c3d;
+  try {
+    c3d = std::make_unique<ezc3d::c3d>(path);
+  } catch (const std::exception& e) {
+    throw std::runtime_error(std::string("failed to parse meta_tree: ") + path + ": " + e.what());
   }
-  C3dHeaderOnly c3d;
-  c3d.load_header_only(file, path);
   py::dict groups;
-  for (const auto& group : c3d.parameters().groups()) {
+  for (const auto& group : c3d->parameters().groups()) {
     py::dict g;
     g["name"] = group.name();
     g["description"] = group.description();
     g["locked"] = group.isLocked();
     py::dict parameters;
     for (const auto& parameter : group.parameters()) {
-      parameters[py::str(parameter.name())] = EzcParameterToDict(parameter);
+      auto p = EzcParameterToDict(parameter);
+      if (group.name() == "POINT") {
+        adjust_point_frames(parameter.name(), p, point_frames_override);
+      }
+      parameters[py::str(parameter.name())] = p;
     }
     g["parameters"] = parameters;
     groups[py::str(group.name())] = g;
@@ -676,7 +682,8 @@ py::dict PyChunk::meta_tree() const {
     return out;
   }
 #if sqzc3d_WITH_EZC3D
-  return ParseMetaTreeFromSource(holder_->source_path);
+  const auto point_frames_override = static_cast<std::int64_t>(sqzc3d_chunk_num_frames(holder_->chunk));
+  return ParseMetaTreeFromSource(holder_->source_path, point_frames_override);
 #else
   return out;
 #endif
