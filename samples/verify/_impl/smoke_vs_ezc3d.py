@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import random
 import sys
+import tempfile
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
@@ -72,6 +74,25 @@ def _safe_number(value: Any, default=None):
         return default
 
 
+def _normalize_unit_token(raw: str) -> str:
+    return "".join(str(raw or "").strip().lower().split())
+
+
+def _units_per_meter_from_unit_token(raw: str) -> float:
+    u = _normalize_unit_token(raw)
+    if u in ("m", "meter", "meters"):
+        return 1.0
+    if u in ("cm", "centimeter", "centimeters"):
+        return 100.0
+    if u in ("mm", "millimeter", "millimeters"):
+        return 1000.0
+    if u in ("in", "inch", "inches"):
+        return 39.37007874015748
+    if u in ("ft", "foot", "feet"):
+        return 3.280839895013123
+    return 0.0
+
+
 def _to_plain_value(value: Any):
     if isinstance(value, np.ndarray):
         if value.ndim == 0:
@@ -91,17 +112,50 @@ def _to_plain_value(value: Any):
     return value
 
 
+def _flatten_nested_value(value: Any) -> List[Any]:
+    flat: List[Any] = []
+
+    def _walk(v):
+        if isinstance(v, (list, tuple)):
+            for item in v:
+                _walk(item)
+        else:
+            flat.append(v)
+
+    _walk(value)
+    return flat
+
+
 def _normalize_ezc3d_tree_param_value(param_like: Any):
     if isinstance(param_like, dict):
         key_lower = {str(k).lower(): v for k, v in param_like.items()}
         if "value" in key_lower:
-            return _to_plain_value(key_lower["value"])
+            value = _to_plain_value(key_lower["value"])
+            arr = np.asarray(value)
+            if isinstance(arr, np.ndarray) and arr.ndim > 1:
+                return arr.T.reshape(-1).tolist()
+            if isinstance(value, (list, tuple)):
+                return _flatten_nested_value(value)
+            if isinstance(arr, np.ndarray):
+                return arr.tolist()
+            return value
         if "values" in key_lower:
-            return _to_plain_value(key_lower["values"])
+            value = _to_plain_value(key_lower["values"])
+            arr = np.asarray(value)
+            if isinstance(arr, np.ndarray) and arr.ndim > 1:
+                return arr.T.reshape(-1).tolist()
+            if isinstance(value, (list, tuple)):
+                return _flatten_nested_value(value)
+            if isinstance(arr, np.ndarray):
+                return arr.tolist()
+            return value
         if "values_as_string" in key_lower:
             return _to_plain_value(key_lower["values_as_string"])
         if "values_as_double" in key_lower:
-            return _to_plain_value(key_lower["values_as_double"])
+            value = _to_plain_value(key_lower["values_as_double"])
+            if isinstance(value, (list, tuple)):
+                return _flatten_nested_value(value)
+            return value
         if "values_as_int" in key_lower:
             return _to_plain_value(key_lower["values_as_int"])
     return _to_plain_value(param_like)
@@ -286,7 +340,7 @@ def _extract_ezc3d_arrays(ez) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
         residual = np.asarray(ez_points_raw[3], dtype=np.float64).T
     else:
         residual = np.full((frame_count, point_count), np.nan, dtype=np.float64)
-    valid = (residual >= 0).astype(np.uint8)
+    valid = np.isfinite(points).all(axis=2).astype(np.uint8)
 
     # ezc3d analogs usually [1, n_analogs, n_frames * n_analog_by_frame].
     ez_analogs_raw = _safe_numpy_array(ez["data"]["analogs"]).astype(np.float64)
@@ -324,6 +378,14 @@ def _extract_ezc3d_arrays(ez) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
     else:
         analog_by_frame = 0
 
+    # sqzc3d exposes points in meters by default; normalize ezc3d points to meters too.
+    units = _extract_ezc3d_label_series(params, "POINT", "UNITS")
+    units_per_meter = _units_per_meter_from_unit_token(units[0] if units else "")
+    if not units_per_meter or not np.isfinite(units_per_meter):
+        # Match sqzc3d behavior: treat missing/unknown units as mm.
+        units_per_meter = 1000.0
+    points = points / float(units_per_meter)
+
     return points, valid, analogs, analog_valid, max(analog_by_frame, 1 if analogs.shape[0] > 0 else 0)
 
 
@@ -333,7 +395,12 @@ def _build_reference_meta(ez, ez_points: np.ndarray, ez_point_valid: np.ndarray,
     analog_header = header.get("analogs", {}) if isinstance(header, dict) else {}
     params = _to_dict_like(ez.get("parameters", {}))
 
-    n_frames = int(point_header.get("size", ez_points.shape[0]))
+    point_first = _safe_number(point_header.get("first_frame"), None)
+    point_last = _safe_number(point_header.get("last_frame"), None)
+    if point_first is not None and point_last is not None:
+        n_frames = max(0, int(point_last) - int(point_first) + 1)
+    else:
+        n_frames = int(point_header.get("size", ez_points.shape[0]))
     n_points = int(ez_points.shape[1]) if ez_points.ndim >= 2 else 0
     n_points_total = int(point_header.get("size", n_points))
     n_analogs = int(ez_analogs.shape[0]) if ez_analogs.ndim > 0 else 0
@@ -342,7 +409,7 @@ def _build_reference_meta(ez, ez_points: np.ndarray, ez_point_valid: np.ndarray,
         n_analog_by_frame = max(1, int(ez_analogs.shape[1] / n_frames))
 
     n_scalar = int(ez_points.shape[0] * ez_points.shape[1] * 3) if ez_points.size else 0
-    valid_nscalar = int(np.count_nonzero(ez_point_valid))
+    valid_nscalar = int(ez_point_valid.size)
     n_analog_scalar = int(ez_analogs.size)
     n_type_groups = 0
     point_group = params.get("POINT", {}) if isinstance(params, dict) else {}
@@ -380,6 +447,28 @@ def _extract_sqzc3d_labels(chunk, key: str) -> List[str]:
     meta = chunk.meta
     labels = meta.get(key, [])
     return [str(v) if v is not None else "" for v in labels]
+
+
+def _extract_ezc3d_label_series(params: Dict[str, Any], group: str, base: str) -> List[str]:
+    group_obj = params.get(group, {}) if isinstance(params, dict) else {}
+    if not isinstance(group_obj, dict):
+        return []
+    out: List[str] = []
+    i = 1
+    while True:
+        key = base if i == 1 else f"{base}{i}"
+        param = group_obj.get(key)
+        if not isinstance(param, dict):
+            break
+        values = param.get("value", param.get("values", []))
+        values_plain = _to_plain_value(values)
+        if isinstance(values_plain, (list, tuple)):
+            for item in values_plain:
+                out.append("" if item is None else str(item))
+        elif values_plain is not None:
+            out.append("" if values_plain is None else str(values_plain))
+        i += 1
+    return out
 
 
 def _compare_points(sq_chunk, ez_chunk) -> List[str]:
@@ -502,9 +591,27 @@ def _compare_meta_tree(sq_chunk, ez) -> List[str]:
     return out
 
 
-def run_one(file_path: Path, strict: bool = True) -> CompareReport:
+def _load_ezc3d_reference(file_path: Path):
     import ezc3d
+    try:
+        return ezc3d.c3d(str(file_path)), None
+    except OSError:
+        fallback_tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".c3d", delete=False) as tmp:
+                fallback_tmp = Path(tmp.name)
+            shutil.copy2(file_path, fallback_tmp)
+            return ezc3d.c3d(str(fallback_tmp)), fallback_tmp
+        except Exception:
+            if fallback_tmp and fallback_tmp.exists():
+                try:
+                    fallback_tmp.unlink()
+                except OSError:
+                    pass
+            raise
 
+
+def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     sqzc3d = _ensure_sqzc3d_import()
     dec = sqzc3d.Decoder(str(file_path))
     try:
@@ -515,8 +622,16 @@ def run_one(file_path: Path, strict: bool = True) -> CompareReport:
         except Exception:
             pass
 
-    ez = ezc3d.c3d(str(file_path))
-    ez_points, ez_point_valid, ez_analog, ez_analog_valid, ez_analog_by_frame = _extract_ezc3d_arrays(ez)
+    ez, fallback_path = _load_ezc3d_reference(file_path)
+    try:
+        ez_points, ez_point_valid, ez_analog, ez_analog_valid, ez_analog_by_frame = _extract_ezc3d_arrays(ez)
+    finally:
+        if fallback_path is not None:
+            try:
+                fallback_path.unlink()
+            except OSError:
+                pass
+
     ez_meta_ref = _build_reference_meta(ez, ez_points, ez_point_valid, ez_analog)
 
     issues: List[str] = []
@@ -526,12 +641,8 @@ def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     point_labels_sq = _extract_sqzc3d_labels(sq_chunk, "point_labels")
     analog_labels_sq = _extract_sqzc3d_labels(sq_chunk, "analog_labels")
     ez_params = _to_dict_like(ez.get("parameters", {}))
-    ez_point_labels = []
-    ez_analog_labels = []
-    if isinstance(ez_params, dict) and isinstance(ez_params.get("POINT", {}), dict):
-        ez_point_labels = ez_params["POINT"].get("LABELS", {}).get("value", [])
-    if isinstance(ez_params, dict) and isinstance(ez_params.get("ANALOG", {}), dict):
-        ez_analog_labels = ez_params["ANALOG"].get("LABELS", {}).get("value", [])
+    ez_point_labels = _extract_ezc3d_label_series(ez_params, "POINT", "LABELS")
+    ez_analog_labels = _extract_ezc3d_label_series(ez_params, "ANALOG", "LABELS")
     if [str(v) if v is not None else "" for v in point_labels_sq] != [str(v) if v is not None else "" for v in ez_point_labels]:
         issues.append(f"point labels mismatch (sq={point_labels_sq[:3]}... ez={list(ez_point_labels)[:3]}...)")
     if [str(v) if v is not None else "" for v in analog_labels_sq] != [str(v) if v is not None else "" for v in ez_analog_labels]:

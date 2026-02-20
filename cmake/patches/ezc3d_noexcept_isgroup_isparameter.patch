@@ -1,0 +1,47 @@
+diff --git a/src/Group.cpp b/src/Group.cpp
+--- a/src/Group.cpp
++++ b/src/Group.cpp
+@@ -143,16 +143,14 @@ bool ezc3d::ParametersNS::GroupNS::Group::isLocked() const { return _isLocked; }
+ size_t ezc3d::ParametersNS::GroupNS::Group::nbParameters() const {
+   return _parameters.size();
+ }
+ 
+ bool ezc3d::ParametersNS::GroupNS::Group::isParameter(
+     const std::string &parameterName) const {
+-  try {
+-    parameterIdx(parameterName);
+-    return true;
+-  } catch (const std::invalid_argument &) {
+-    return false;
+-  }
++  for (size_t i = 0; i < nbParameters(); ++i)
++    if (!parameter(i).name().compare(parameterName))
++      return true;
++  return false;
+ }
+ 
+ size_t ezc3d::ParametersNS::GroupNS::Group::parameterIdx(
+     const std::string &parameterName) const {
+diff --git a/src/Parameters.cpp b/src/Parameters.cpp
+--- a/src/Parameters.cpp
++++ b/src/Parameters.cpp
+@@ -506,15 +506,13 @@ size_t ezc3d::ParametersNS::Parameters::nbGroups() const {
+   return _groups.size();
+ }
+ 
+ bool ezc3d::ParametersNS::Parameters::isGroup(
+     const std::string &groupName) const {
+-  try {
+-    groupIdx(groupName);
+-    return true;
+-  } catch (const std::invalid_argument &) {
+-    return false;
+-  }
++  for (size_t i = 0; i < nbGroups(); ++i)
++    if (!group(i).name().compare(groupName))
++      return true;
++  return false;
+ }
+ 
+ size_t
+ ezc3d::ParametersNS::Parameters::groupIdx(const std::string &groupName) const {

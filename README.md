@@ -99,6 +99,8 @@ cmake --build build --config Release --parallel
   enable/disable the C3D parser feature.
 - `SQZC3D_FETCH_EZC3D` (`ON|OFF`, default `ON`)  
   auto-fetch ezc3d when not found in the current toolchain.
+- `SQZC3D_APPLY_EZC3D_PATCHES` (`ON|OFF`, default `ON` on Emscripten/WASM, `OFF` otherwise)  
+  apply local compatibility patches to fetched ezc3d (see `cmake/patches/README.md`).
 - `SQZC3D_BUILD_EXAMPLES` (`ON|OFF`, default `OFF`)  
   build CLI samples.
 - `SQZC3D_EZC3D_GIT_REPOSITORY` / `SQZC3D_EZC3D_GIT_TAG`  

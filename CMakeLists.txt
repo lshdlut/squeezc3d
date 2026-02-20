@@ -12,8 +12,47 @@ endif()
 option(SQZC3D_WITH_EZC3D "Enable ezc3d-backed parser implementation" ON)
 option(SQZC3D_FETCH_EZC3D "Fetch ezc3d from GitHub when not provided externally" ON)
 option(SQZC3D_BUILD_PYTHON "Build Python extension module (pybind11)" OFF)
+set(_SQZC3D_DEFAULT_APPLY_EZC3D_PATCHES OFF)
+if (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+  # Emscripten/WASM builds may disable/limit exception catching; ezc3d uses try/catch as control flow
+  # in some query helpers. Enable local patches by default for WASM to match native behavior.
+  set(_SQZC3D_DEFAULT_APPLY_EZC3D_PATCHES ON)
+endif()
+option(SQZC3D_APPLY_EZC3D_PATCHES "Apply local patches to ezc3d when fetched" ${_SQZC3D_DEFAULT_APPLY_EZC3D_PATCHES})
 set(SQZC3D_EZC3D_GIT_REPOSITORY "https://github.com/pyomeca/ezc3d.git" CACHE STRING "ezc3d git repository")
 set(SQZC3D_EZC3D_GIT_TAG "Release_1.6.3" CACHE STRING "ezc3d git tag/branch/commit")
+
+function(_sqzc3d_apply_ezc3d_patches ezc3d_source_dir)
+  if (NOT SQZC3D_APPLY_EZC3D_PATCHES)
+    return()
+  endif()
+
+  set(_SQZC3D_PATCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches")
+  set(_SQZC3D_APPLY_SCRIPT "${_SQZC3D_PATCH_DIR}/apply_git_patch.cmake")
+  set(_SQZC3D_EZC3D_PATCH_FILES
+    "${_SQZC3D_PATCH_DIR}/ezc3d_noexcept_isgroup_isparameter.patch"
+  )
+
+  if (NOT EXISTS "${_SQZC3D_APPLY_SCRIPT}")
+    message(FATAL_ERROR "Missing patch script: ${_SQZC3D_APPLY_SCRIPT}")
+  endif()
+
+  foreach (_sqzc3d_patch_file IN LISTS _SQZC3D_EZC3D_PATCH_FILES)
+    if (NOT EXISTS "${_sqzc3d_patch_file}")
+      message(FATAL_ERROR "Missing ezc3d patch file: ${_sqzc3d_patch_file}")
+    endif()
+
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" "-DPATCH_FILE=${_sqzc3d_patch_file}" -P "${_SQZC3D_APPLY_SCRIPT}"
+      WORKING_DIRECTORY "${ezc3d_source_dir}"
+      RESULT_VARIABLE _sqzc3d_patch_res
+    )
+
+    if (NOT _sqzc3d_patch_res EQUAL 0)
+      message(FATAL_ERROR "Failed to apply ezc3d patch: ${_sqzc3d_patch_file}")
+    endif()
+  endforeach()
+endfunction()
 
 if (DEFINED sqzc3d_WITH_EZC3D)
   if (_SQZC3D_WITH_EZC3D_PREDEFINED)
@@ -70,6 +109,7 @@ if (SQZC3D_WITH_EZC3D)
         GIT_TAG        ${SQZC3D_EZC3D_GIT_TAG}
       )
       FetchContent_MakeAvailable(ezc3d)
+      _sqzc3d_apply_ezc3d_patches("${ezc3d_SOURCE_DIR}")
       if (TARGET ezc3d)
         target_link_libraries(sqzc3d PUBLIC ezc3d)
       elseif (TARGET ezc3d::ezc3d)
@@ -93,6 +133,7 @@ if (SQZC3D_WITH_EZC3D)
         GIT_TAG        ${SQZC3D_EZC3D_GIT_TAG}
       )
       FetchContent_MakeAvailable(ezc3d)
+      _sqzc3d_apply_ezc3d_patches("${ezc3d_SOURCE_DIR}")
       if (TARGET ezc3d)
         target_link_libraries(sqzc3d PUBLIC ezc3d)
       elseif (TARGET ezc3d::ezc3d)
@@ -151,7 +192,7 @@ if (NOT CMAKE_CROSSCOMPILING AND SQZC3D_BUILD_EXAMPLES)
   target_link_libraries(export_sqzc3d_bundle PRIVATE sqzc3d)
   set_property(TARGET export_sqzc3d_bundle PROPERTY CXX_STANDARD 17)
 
-  add_executable(verify_correctness_matrix_sqzc3d samples/verify/verify_correctness_matrix_sqzc3d.cpp)
+  add_executable(verify_correctness_matrix_sqzc3d samples/verify/cpp/verify_correctness_matrix_sqzc3d.cpp)
   target_link_libraries(verify_correctness_matrix_sqzc3d PRIVATE sqzc3d)
   set_property(TARGET verify_correctness_matrix_sqzc3d PROPERTY CXX_STANDARD 17)
 
@@ -160,4 +201,3 @@ if (NOT CMAKE_CROSSCOMPILING AND SQZC3D_BUILD_EXAMPLES)
   set_property(TARGET easy_window_sqzc3d PROPERTY CXX_STANDARD 17)
 
 endif()
-

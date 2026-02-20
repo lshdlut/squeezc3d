@@ -26,3 +26,5 @@ Programs:
   - `easy_window_sqzc3d`
 - Validation:
   - `verify_correctness_matrix_sqzc3d`
+
+Python developer checks live under `samples/verify/` (see `samples/verify/README.md`).

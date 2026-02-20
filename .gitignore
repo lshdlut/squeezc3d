@@ -1,9 +1,20 @@
 # Local-only artifacts
 build/
 build_*/
+build-*/
+build-wasm-*/
 out/
 dist/
 local_tools/
+temp_pkg/
+
+# Root-level scratch scripts / logs (keep samples/tmp_*.py trackable)
+/tmp_*.py
+/tmp_*.ps1
+/tmp_*.txt
+/tmp_std_*.txt
+/temp_*.py
+/build_wasm_final.py
 
 # Build system artifacts
 .vs/
