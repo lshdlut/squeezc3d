@@ -77,18 +77,24 @@ bool check_chunk_index_contract(const sqzc3d_chunk_t* chunk, const std::string& 
   }
 
   const std::vector<std::string> missing_group = {"__missing__"};
-  const auto type_sel =
-      sqzc3d::PointIndicesFromTypeGroups(chunk, missing_group, /*keep_markers_when_missing=*/true);
-  if (static_cast<int>(type_sel.size()) != chunk->n_points) {
-    std::cerr << "  - " << tag << ": easy type-group fallback selection size mismatch: got=" << type_sel.size()
-              << " expected=" << chunk->n_points << "\n";
-    return false;
-  }
-  for (int i = 0; i < static_cast<int>(type_sel.size()); ++i) {
-    const int idx = type_sel[static_cast<std::size_t>(i)];
-    if (idx < 0 || idx >= chunk->n_points) {
-      std::cerr << "  - " << tag << ": easy type selection out of bounds: idx=" << idx
-                << " (n_points=" << chunk->n_points << ")\n";
+  const bool has_type_meta = (chunk->n_type_groups > 0 && chunk->type_group_names && chunk->type_group_starts &&
+                              chunk->type_group_indices);
+  const auto type_sel = sqzc3d::PointIndicesFromTypeGroups(chunk, missing_group, /*missing_meta_all=*/true);
+  if (!has_type_meta) {
+    if (static_cast<int>(type_sel.size()) != chunk->n_points) {
+      std::cerr << "  - " << tag << ": type-group meta missing should be a no-op: got=" << type_sel.size()
+                << " expected=" << chunk->n_points << "\n";
+      return false;
+    }
+  } else {
+    if (!type_sel.empty()) {
+      std::cerr << "  - " << tag << ": missing type-group name should yield empty set: got=" << type_sel.size() << "\n";
+      return false;
+    }
+    std::vector<int> strict_sel;
+    const int strict_st = sqzc3d::PointIndicesFromTypeGroupsStrict(chunk, missing_group, &strict_sel);
+    if (strict_st == sqzc3d_STATUS_SUCCESS) {
+      std::cerr << "  - " << tag << ": strict missing type-group name should fail\n";
       return false;
     }
   }

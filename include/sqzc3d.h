@@ -211,9 +211,12 @@ typedef struct sqzc3d_points_view_t_ {
   const unsigned char* points_valid;
   int n_frames;
   int n_points;
-  int source_stride_points;   // number of points in source per frame
-  int source_point_offset;    // contiguous slice origin in source points
-  const int* point_indices;   // non-null for gather view, values are source point indices
+  // Number of points per frame in the underlying chunk (stride for gather views).
+  int source_stride_points;
+  // Contiguous slice origin in the underlying chunk point index space.
+  int source_point_offset;
+  // Non-null for gather view; values are indices into the underlying chunk point index space.
+  const int* point_indices;
 } sqzc3d_points_view_t;
 
 typedef struct sqzc3d_analogs_view_t_ {
@@ -227,7 +230,7 @@ typedef struct sqzc3d_analogs_view_t_ {
   // Source samples per channel (stride in samples between channels).
   // For views derived from a chunk: source_stride_samples = chunk->n_frames * chunk->n_analog_by_frame.
   int source_stride_samples;
-  // Non-null for gather view; values are source channel indices.
+  // Non-null for gather view; values are indices into the underlying chunk channel index space.
   const int* channel_indices;
 } sqzc3d_analogs_view_t;
 

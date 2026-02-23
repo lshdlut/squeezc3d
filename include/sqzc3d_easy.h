@@ -215,7 +215,7 @@ inline FrameMajorAnalogView FrameMajorAnalogViewTCSFrames(
 inline std::vector<int> PointIndicesFromTypeGroups(
     const sqzc3d_chunk_t* chunk,
     const std::vector<std::string>& group_names,
-    bool keep_markers_when_missing) {
+    bool missing_meta_all) {
   std::vector<int> out_indices;
   if (!chunk) return out_indices;
   const int n_points = chunk->n_points;
@@ -223,7 +223,7 @@ inline std::vector<int> PointIndicesFromTypeGroups(
 
   if (!chunk->type_group_names || !chunk->type_group_starts || !chunk->type_group_indices ||
       chunk->n_type_groups <= 0) {
-    if (!keep_markers_when_missing) return out_indices;
+    if (!missing_meta_all) return out_indices;
     out_indices.resize(static_cast<std::size_t>(n_points));
     for (int i = 0; i < n_points; ++i) out_indices[static_cast<std::size_t>(i)] = i;
     return out_indices;
@@ -253,12 +253,52 @@ inline std::vector<int> PointIndicesFromTypeGroups(
       break;
     }
   }
-  if (out_indices.empty() && keep_markers_when_missing) {
-    for (int i = 0; i < n_points; ++i) {
-      if (!seen[static_cast<std::size_t>(i)]) marker(i);
-    }
-  }
   return out_indices;
+}
+
+// Strict variant of PointIndicesFromTypeGroups:
+// - Requires POINT:TYPE_GROUPS metadata to be present on the chunk.
+// - Requires every requested group name to exist.
+// - Returns a flat CHUNK-LOCAL point index list (deduplicated).
+inline int PointIndicesFromTypeGroupsStrict(
+    const sqzc3d_chunk_t* chunk,
+    const std::vector<std::string>& group_names,
+    std::vector<int>* out_indices) {
+  if (!out_indices || !chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  out_indices->clear();
+  const int n_points = chunk->n_points;
+  if (n_points <= 0) return sqzc3d_STATUS_SUCCESS;
+
+  if (!chunk->type_group_names || !chunk->type_group_starts || !chunk->type_group_indices ||
+      chunk->n_type_groups <= 0) {
+    return sqzc3d_STATUS_INVALID_ARGUMENT;
+  }
+
+  if (group_names.empty()) return sqzc3d_STATUS_SUCCESS;
+
+  std::vector<unsigned char> seen(static_cast<std::size_t>(n_points), 0u);
+  for (const auto& want : group_names) {
+    bool found = false;
+    for (int i = 0; i < chunk->n_type_groups; ++i) {
+      const char* gname = chunk->type_group_names[static_cast<std::size_t>(i)];
+      const std::string group = (gname ? gname : "");
+      if (group != want) continue;
+      found = true;
+      const int start = chunk->type_group_starts[static_cast<std::size_t>(i)];
+      const int end = chunk->type_group_starts[static_cast<std::size_t>(i) + 1u];
+      for (int p = start; p < end; ++p) {
+        const int idx = chunk->type_group_indices[static_cast<std::size_t>(p)];
+        if (idx < 0 || idx >= n_points) continue;
+        if (!seen[static_cast<std::size_t>(idx)]) {
+          seen[static_cast<std::size_t>(idx)] = 1u;
+          out_indices->push_back(idx);
+        }
+      }
+      break;
+    }
+    if (!found) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  }
+  return sqzc3d_STATUS_SUCCESS;
 }
 
 inline std::vector<unsigned char> IndicesToMask(
@@ -340,6 +380,106 @@ inline std::vector<int> MaskAndNotToIndices(
   }
   return out;
 }
+
+// Chunk-local point query helper.
+//
+// This helper is intentionally minimal:
+// - Query is bound to a specific chunk.
+// - All filters combine by AND (set intersection).
+// - Each filter slot overwrites itself (no implicit accumulation).
+struct ChunkQuery {
+  const sqzc3d_chunk_t* chunk = nullptr;
+  int n_points = 0;
+
+  bool has_sel = false;
+  std::vector<unsigned char> sel_mask;
+
+  bool has_type = false;
+  std::vector<unsigned char> type_mask;
+
+  explicit ChunkQuery(const sqzc3d_chunk_t* in_chunk)
+      : chunk(in_chunk), n_points(in_chunk ? in_chunk->n_points : 0) {}
+
+  int SetSelIndices(const std::vector<int>& indices) {
+    if (!chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    sel_mask = IndicesToMask(indices, n_points);
+    if (n_points > 0 && !indices.empty() && sel_mask.empty()) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    has_sel = true;
+    return sqzc3d_STATUS_SUCCESS;
+  }
+
+  int SetSelMask(const unsigned char* mask, int n) {
+    if (!chunk || n < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (n != n_points) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    sel_mask.assign(static_cast<std::size_t>(n_points), 0u);
+    if (n_points > 0 && !mask) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    for (int i = 0; i < n_points; ++i) sel_mask[static_cast<std::size_t>(i)] = mask[static_cast<std::size_t>(i)];
+    has_sel = true;
+    return sqzc3d_STATUS_SUCCESS;
+  }
+
+  // Convert a list of group names to a point selection mask.
+  //
+  // Default semantics:
+  // - If the chunk has no TYPE_GROUPS metadata, treat this filter as a no-op (all points).
+  // - If metadata exists but none of the group names exist, this yields an empty set.
+  int SetTypeGroups(const std::vector<std::string>& group_names, bool strict = false) {
+    if (!chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (strict) {
+      std::vector<int> idx;
+      const int st = PointIndicesFromTypeGroupsStrict(chunk, group_names, &idx);
+      if (st != sqzc3d_STATUS_SUCCESS) return st;
+      type_mask = IndicesToMask(idx, n_points);
+      has_type = true;
+      return sqzc3d_STATUS_SUCCESS;
+    }
+    const auto idx = PointIndicesFromTypeGroups(chunk, group_names, /*missing_meta_all=*/true);
+    type_mask = IndicesToMask(idx, n_points);
+    has_type = true;
+    return sqzc3d_STATUS_SUCCESS;
+  }
+
+  std::vector<unsigned char> Mask() const {
+    std::vector<unsigned char> out;
+    if (!chunk || n_points <= 0) return out;
+    out.assign(static_cast<std::size_t>(n_points), 1u);
+    if (has_sel) {
+      if (static_cast<int>(sel_mask.size()) != n_points) return {};
+      for (int i = 0; i < n_points; ++i) {
+        out[static_cast<std::size_t>(i)] =
+            (out[static_cast<std::size_t>(i)] != 0u && sel_mask[static_cast<std::size_t>(i)] != 0u) ? 1u : 0u;
+      }
+    }
+    if (has_type) {
+      if (static_cast<int>(type_mask.size()) != n_points) return {};
+      for (int i = 0; i < n_points; ++i) {
+        out[static_cast<std::size_t>(i)] =
+            (out[static_cast<std::size_t>(i)] != 0u && type_mask[static_cast<std::size_t>(i)] != 0u) ? 1u : 0u;
+      }
+    }
+    return out;
+  }
+
+  std::vector<int> Indices() const {
+    const auto mask = Mask();
+    if (mask.empty() || n_points <= 0) return {};
+    return MaskToIndices(mask.data(), n_points);
+  }
+};
+
+// Reusable query recipe (no direct indices/masks allowed).
+struct ChunkRecipe {
+  // Type-group names to select (POINT:TYPE_GROUPS).
+  std::vector<std::string> type_groups;
+  bool type_groups_strict = false;
+
+  int Apply(const sqzc3d_chunk_t* chunk, ChunkQuery* out_query) const {
+    if (!out_query) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    *out_query = ChunkQuery(chunk);
+    if (type_groups.empty()) return sqzc3d_STATUS_SUCCESS;
+    return out_query->SetTypeGroups(type_groups, type_groups_strict);
+  }
+};
 
 inline void ReorderFrameMajorToPointMajor(
     const sqzc3d_num_t* frame_major_xyz,
