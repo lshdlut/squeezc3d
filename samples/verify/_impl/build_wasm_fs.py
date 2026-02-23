@@ -6,7 +6,9 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -31,10 +33,29 @@ def _default_empp() -> str:
     emsdk = os.environ.get("EMSDK_HOME") or os.environ.get("EMSDK")
     if emsdk:
         base = Path(emsdk)
-        cand = base / "upstream" / "emscripten" / ("em++.bat" if os.name == "nt" else "em++")
-        if cand.exists():
-            return str(cand)
+        if os.name == "nt":
+            cand = base / "upstream" / "emscripten" / "em++.py"
+            if cand.exists():
+                return str(cand)
+            cand = base / "upstream" / "emscripten" / "em++.bat"
+            if cand.exists():
+                return str(cand)
+        else:
+            cand = base / "upstream" / "emscripten" / "em++"
+            if cand.exists():
+                return str(cand)
     return "em++"
+
+
+def _empp_argv(empp: str) -> List[str]:
+    resolved = shutil.which(empp) or empp
+    p = Path(resolved)
+    suf = p.suffix.lower()
+    if suf == ".py":
+        return [sys.executable, resolved]
+    if os.name == "nt" and suf in (".bat", ".cmd"):
+        return ["cmd", "/c", resolved]
+    return [resolved]
 
 
 def _find_ezc3d_src(root: Path, override: Optional[Path]) -> Path:
@@ -110,6 +131,7 @@ def main() -> None:
 
     empp = str(args.empp) if args.empp else _default_empp()
     ezc3d_src = _find_ezc3d_src(root, args.ezc3d_src)
+    empp_argv = _empp_argv(empp)
 
     build_inc: Optional[Path] = None
     build_inc_env = os.environ.get("EZC3D_BUILD_INCLUDE_DIR")
@@ -148,13 +170,14 @@ def main() -> None:
     ]
     src += _iter_ezc3d_cpp(ezc3d_src)
 
-    exported_list = "[" + ",".join([f"\\\"{e}\\\"" for e in exported]) + "]"
+    # Note: Pass list syntax directly to Emscripten without extra escaping, since we don't invoke a shell.
+    exported_list = "[" + ",".join([f"'{e}'" for e in exported]) + "]"
     runtime_methods = "[" + ",".join(
-        [f"\\\"{m}\\\"" for m in ["ccall", "cwrap", "setValue", "getValue", "UTF8ToString", "stringToUTF8", "lengthBytesUTF8"]]
+        [f"'{m}'" for m in ["ccall", "cwrap", "setValue", "getValue", "UTF8ToString", "stringToUTF8", "lengthBytesUTF8"]]
     ) + "]"
 
     cmd = [
-        empp,
+        *empp_argv,
         "-O2",
         "-std=c++17",
         "-Wall",
@@ -197,6 +220,8 @@ def main() -> None:
     print("[sqzc3d][wasm] building...")
     print("[sqzc3d][wasm] out_dir:", out_dir)
     print("[sqzc3d][wasm] empp:", empp)
+    if empp_argv != [empp]:
+        print("[sqzc3d][wasm] empp_argv:", empp_argv)
     print("[sqzc3d][wasm] ezc3d_src:", ezc3d_src)
     if build_inc is not None:
         print("[sqzc3d][wasm] ezc3d_build_include:", build_inc)
@@ -221,4 +246,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
