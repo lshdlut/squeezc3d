@@ -19,6 +19,17 @@ if _core is not None:
     Decoder = _core.Decoder
     Chunk = _core.Chunk
     load_bundle = _core.load_bundle
+
+    from .query import (  # noqa: E402
+        ChunkQuery,
+        ChunkRecipe,
+        indices_to_mask,
+        mask_to_indices,
+        mask_or_indices,
+        mask_and_indices,
+        mask_andnot_indices,
+        type_group_indices,
+    )
     SQZC3D_VERSION = _core.SQZC3D_VERSION
     SQZC3D_VERSION_MAJOR = _core.SQZC3D_VERSION_MAJOR
     SQZC3D_VERSION_MINOR = _core.SQZC3D_VERSION_MINOR
@@ -35,11 +46,19 @@ if _core is not None:
     __all__ = [
         "Decoder",
         "Chunk",
+        "ChunkQuery",
+        "ChunkRecipe",
         "load_bundle",
         "version",
         "abi_version",
         "features",
         "__version__",
+        "indices_to_mask",
+        "mask_to_indices",
+        "mask_or_indices",
+        "mask_and_indices",
+        "mask_andnot_indices",
+        "type_group_indices",
         "SQZC3D_VERSION",
         "SQZC3D_VERSION_MAJOR",
         "SQZC3D_VERSION_MINOR",
