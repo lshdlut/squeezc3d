@@ -104,6 +104,11 @@ Header-only helpers in `include/sqzc3d_easy.h`:
   - Provide a non-contiguous (strided) frame-major view `(T, C, S)` over the underlying `(C, N)` storage.
 - `sqzc3d::PointIndicesFromTypeGroups`
   - Convert type-group names to a flat **chunk-local** point index list.
+  - Default filter semantics: missing TYPE_GROUPS metadata => no-op (all points); missing group name => empty set.
+- `sqzc3d::PointIndicesFromTypeGroupsStrict`
+  - Strict variant with explicit error signaling (returns a `sqzc3d_STATUS_*` code).
+- `sqzc3d::ChunkQuery` / `sqzc3d::ChunkRecipe`
+  - Minimal AND-only chunk-local filtering helpers (bound to a chunk; recipes are reusable).
 - `sqzc3d::ReorderFrameMajorToPointMajor`
   - Reorder helper for consumers requiring point-major layout.
 
@@ -137,6 +142,8 @@ High-level Python exports:
 - `sqzc3d.features()`
 - `sqzc3d.Decoder`
 - `sqzc3d.Chunk`
+- `sqzc3d.ChunkQuery` / `sqzc3d.ChunkRecipe` (AND-only chunk-local filtering)
+- `sqzc3d.type_group_indices(chunk, group_names, strict=False)`
 - `sqzc3d.load_bundle(path: str, strict: bool = True)`
 
 `Decoder`:

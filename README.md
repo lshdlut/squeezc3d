@@ -120,18 +120,11 @@ dec = sqzc3d.Decoder("path/to/file.c3d")
 chunk = dec.read(frame_count=1, points=["LHEE", "RHEE"])
 meta = chunk.meta
 
-names = meta["type_group_names"]
-starts = meta["type_group_starts"]
-indices = meta["type_group_indices"]
-labels = meta["point_labels"]
-
-# type_group_indices are chunk-local indices into meta["point_labels"].
-groups = {}
-for gi, name in enumerate(names):
-    s, e = starts[gi], starts[gi + 1]
-    groups[name] = [labels[i] for i in indices[s:e]]
-
-print(groups)
+# type-group indices are chunk-local indices into meta["point_labels"].
+# Default: missing TYPE_GROUPS metadata is treated as a no-op (all points).
+marker_idx = sqzc3d.type_group_indices(chunk, "MARKER", strict=False)
+marker_labels = [meta["point_labels"][i] for i in marker_idx]
+print(marker_labels)
 print(chunk.point_indices_total)  # optional local->total mapping (may be None)
 ```
 
