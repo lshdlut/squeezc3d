@@ -217,21 +217,21 @@ inline std::vector<int> PointIndicesFromTypeGroups(
     const std::vector<std::string>& group_names,
     bool keep_markers_when_missing) {
   std::vector<int> out_indices;
-  if (!chunk || !chunk->point_labels) return out_indices;
-  const int n_total = chunk->n_points_total;
-  if (n_total <= 0) return out_indices;
+  if (!chunk) return out_indices;
+  const int n_points = chunk->n_points;
+  if (n_points <= 0) return out_indices;
 
   if (!chunk->type_group_names || !chunk->type_group_starts || !chunk->type_group_indices ||
       chunk->n_type_groups <= 0) {
     if (!keep_markers_when_missing) return out_indices;
-    out_indices.resize(static_cast<std::size_t>(n_total));
-    for (int i = 0; i < n_total; ++i) out_indices[static_cast<std::size_t>(i)] = i;
+    out_indices.resize(static_cast<std::size_t>(n_points));
+    for (int i = 0; i < n_points; ++i) out_indices[static_cast<std::size_t>(i)] = i;
     return out_indices;
   }
 
-  std::vector<unsigned char> seen(static_cast<std::size_t>(n_total), 0);
+  std::vector<unsigned char> seen(static_cast<std::size_t>(n_points), 0);
   const auto marker = [&](int idx) {
-    if (idx < 0 || idx >= n_total) return;
+    if (idx < 0 || idx >= n_points) return;
     if (!seen[static_cast<std::size_t>(idx)]) {
       seen[static_cast<std::size_t>(idx)] = 1;
       out_indices.push_back(idx);
@@ -254,11 +254,91 @@ inline std::vector<int> PointIndicesFromTypeGroups(
     }
   }
   if (out_indices.empty() && keep_markers_when_missing) {
-    for (int i = 0; i < n_total; ++i) {
+    for (int i = 0; i < n_points; ++i) {
       if (!seen[static_cast<std::size_t>(i)]) marker(i);
     }
   }
   return out_indices;
+}
+
+inline std::vector<unsigned char> IndicesToMask(
+    const int* indices,
+    int n_indices,
+    int n_total) {
+  std::vector<unsigned char> mask;
+  if (n_total <= 0 || n_indices < 0) return mask;
+  mask.assign(static_cast<std::size_t>(n_total), 0u);
+  if (n_indices == 0) return mask;
+  if (!indices) {
+    mask.clear();
+    return mask;
+  }
+  for (int i = 0; i < n_indices; ++i) {
+    const int idx = indices[i];
+    if (idx < 0 || idx >= n_total) {
+      mask.clear();
+      return mask;
+    }
+    mask[static_cast<std::size_t>(idx)] = 1u;
+  }
+  return mask;
+}
+
+inline std::vector<unsigned char> IndicesToMask(
+    const std::vector<int>& indices,
+    int n_total) {
+  return IndicesToMask(indices.empty() ? nullptr : indices.data(), static_cast<int>(indices.size()), n_total);
+}
+
+inline std::vector<int> MaskToIndices(
+    const unsigned char* mask,
+    int n_total) {
+  std::vector<int> out;
+  if (!mask || n_total <= 0) return out;
+  out.reserve(static_cast<std::size_t>(n_total));
+  for (int i = 0; i < n_total; ++i) {
+    if (mask[static_cast<std::size_t>(i)] != 0u) out.push_back(i);
+  }
+  return out;
+}
+
+inline std::vector<int> MaskOrToIndices(
+    const unsigned char* a,
+    const unsigned char* b,
+    int n_total) {
+  std::vector<int> out;
+  if (!a || !b || n_total <= 0) return out;
+  out.reserve(static_cast<std::size_t>(n_total));
+  for (int i = 0; i < n_total; ++i) {
+    if (a[static_cast<std::size_t>(i)] != 0u || b[static_cast<std::size_t>(i)] != 0u) out.push_back(i);
+  }
+  return out;
+}
+
+inline std::vector<int> MaskAndToIndices(
+    const unsigned char* a,
+    const unsigned char* b,
+    int n_total) {
+  std::vector<int> out;
+  if (!a || !b || n_total <= 0) return out;
+  out.reserve(static_cast<std::size_t>(n_total));
+  for (int i = 0; i < n_total; ++i) {
+    if (a[static_cast<std::size_t>(i)] != 0u && b[static_cast<std::size_t>(i)] != 0u) out.push_back(i);
+  }
+  return out;
+}
+
+inline std::vector<int> MaskAndNotToIndices(
+    const unsigned char* a,
+    const unsigned char* b,
+    int n_total) {
+  std::vector<int> out;
+  if (!a || !b || n_total <= 0) return out;
+  out.reserve(static_cast<std::size_t>(n_total));
+  for (int i = 0; i < n_total; ++i) {
+    if (a[static_cast<std::size_t>(i)] != 0u && b[static_cast<std::size_t>(i)] == 0u) out.push_back(i);
+  }
+  return out;
 }
 
 inline void ReorderFrameMajorToPointMajor(

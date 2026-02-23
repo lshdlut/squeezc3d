@@ -533,6 +533,19 @@ struct PyChunk {
     return py::make_tuple(values, valid);
   }
 
+  py::object point_indices_total() const {
+    const auto* chunk = holder_ ? holder_->chunk : nullptr;
+    if (!chunk) return py::none();
+    if (chunk->n_points == 0) return py::list();
+    const int* indices = nullptr;
+    int n = 0;
+    const int st = sqzc3d_chunk_point_indices_total(chunk, &indices, &n);
+    if (st != sqzc3d_STATUS_SUCCESS || !indices || n <= 0) return py::none();
+    py::list out;
+    for (int i = 0; i < n; ++i) out.append(indices[i]);
+    return std::move(out);
+  }
+
   py::dict meta() const {
     py::dict out;
     const auto* chunk = holder_->chunk;
@@ -564,6 +577,7 @@ struct PyChunk {
       }
     }
     out["point_labels"] = std::move(point_labels);
+    out["point_indices_total"] = point_indices_total();
     py::list analog_labels;
     if (chunk->analog_labels) {
       for (int i = 0; i < chunk->n_analogs; ++i) {
@@ -745,6 +759,7 @@ PYBIND11_MODULE(_core, m) {
            py::arg("copy") = true)
       .def_property_readonly("meta", &PyChunk::meta)
       .def_property_readonly("meta_tree", &PyChunk::meta_tree)
+      .def_property_readonly("point_indices_total", &PyChunk::point_indices_total)
       .def_property_readonly("source_path", &PyChunk::source_path);
 }
 

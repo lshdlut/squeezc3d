@@ -1,4 +1,5 @@
 #include "sqzc3d.h"
+#include "sqzc3d_easy.h"
 
 #include <algorithm>
 #include <chrono>
@@ -21,6 +22,79 @@ struct CaseConfig {
   std::vector<int> analog_indices;
   std::vector<const char*> analog_labels;
 };
+
+bool check_chunk_index_contract(const sqzc3d_chunk_t* chunk, const std::string& tag) {
+  if (!chunk) {
+    std::cerr << "  - " << tag << ": null chunk\n";
+    return false;
+  }
+  if (chunk->n_points < 0 || chunk->n_points_total < 0 || chunk->n_points > chunk->n_points_total) {
+    std::cerr << "  - " << tag << ": invalid n_points/n_points_total: n_points=" << chunk->n_points
+              << " n_points_total=" << chunk->n_points_total << "\n";
+    return false;
+  }
+
+  if (chunk->n_type_groups > 0) {
+    if (!chunk->type_group_names || !chunk->type_group_starts || !chunk->type_group_indices) {
+      std::cerr << "  - " << tag << ": type group metadata incomplete: n_type_groups=" << chunk->n_type_groups << "\n";
+      return false;
+    }
+    const int end = chunk->type_group_starts[static_cast<std::size_t>(chunk->n_type_groups)];
+    if (end < 0) {
+      std::cerr << "  - " << tag << ": type_group_starts end is negative: " << end << "\n";
+      return false;
+    }
+    for (int i = 0; i < end; ++i) {
+      const int idx = chunk->type_group_indices[static_cast<std::size_t>(i)];
+      if (idx < 0 || idx >= chunk->n_points) {
+        std::cerr << "  - " << tag << ": type_group_indices[" << i << "] out of bounds: " << idx
+                  << " (n_points=" << chunk->n_points << ")\n";
+        return false;
+      }
+    }
+  }
+
+  const int* point_indices_total = nullptr;
+  int n_points_map = 0;
+  const int map_st = sqzc3d_chunk_point_indices_total(chunk, &point_indices_total, &n_points_map);
+  if (map_st == sqzc3d_STATUS_SUCCESS) {
+    if (!point_indices_total || n_points_map != chunk->n_points) {
+      std::cerr << "  - " << tag << ": point_indices_total invalid: ptr=" << (point_indices_total ? "non-null" : "null")
+                << " n=" << n_points_map << " expected=" << chunk->n_points << "\n";
+      return false;
+    }
+    for (int i = 0; i < n_points_map; ++i) {
+      const int idx = point_indices_total[static_cast<std::size_t>(i)];
+      if (idx < 0 || idx >= chunk->n_points_total) {
+        std::cerr << "  - " << tag << ": point_indices_total[" << i << "] out of bounds: " << idx
+                  << " (n_points_total=" << chunk->n_points_total << ")\n";
+        return false;
+      }
+    }
+  } else if (map_st != sqzc3d_STATUS_NOT_IMPLEMENTED) {
+    std::cerr << "  - " << tag << ": sqzc3d_chunk_point_indices_total failed: status=" << map_st << "\n";
+    return false;
+  }
+
+  const std::vector<std::string> missing_group = {"__missing__"};
+  const auto type_sel =
+      sqzc3d::PointIndicesFromTypeGroups(chunk, missing_group, /*keep_markers_when_missing=*/true);
+  if (static_cast<int>(type_sel.size()) != chunk->n_points) {
+    std::cerr << "  - " << tag << ": easy type-group fallback selection size mismatch: got=" << type_sel.size()
+              << " expected=" << chunk->n_points << "\n";
+    return false;
+  }
+  for (int i = 0; i < static_cast<int>(type_sel.size()); ++i) {
+    const int idx = type_sel[static_cast<std::size_t>(i)];
+    if (idx < 0 || idx >= chunk->n_points) {
+      std::cerr << "  - " << tag << ": easy type selection out of bounds: idx=" << idx
+                << " (n_points=" << chunk->n_points << ")\n";
+      return false;
+    }
+  }
+
+  return true;
+}
 
 bool compare_chunks(const sqzc3d_chunk_t* lhs, const sqzc3d_chunk_t* rhs) {
   if (!lhs || !rhs) return false;
@@ -191,6 +265,10 @@ bool run_one_case(const sqzc3d_dec_t* dec, const CaseConfig& cfg, const std::str
               << " n_scalar=" << built->n_scalar << " n_frames=" << built->n_frames
               << " valid_nscalar=" << built->valid_nscalar << "\n";
   }
+  if (!check_chunk_index_contract(built, cfg.name + ":built")) {
+    sqzc3d_free_chunk(built);
+    return false;
+  }
 
   const auto bundle_path = make_case_path(file_path, cfg.name, file_idx, case_idx);
   const int export_status = sqzc3d_export_bundle(bundle_path.string().c_str(), built);
@@ -222,6 +300,16 @@ bool run_one_case(const sqzc3d_dec_t* dec, const CaseConfig& cfg, const std::str
     }
     if (loaded) sqzc3d_free_chunk(loaded);
     if (strict_loaded) sqzc3d_free_chunk(strict_loaded);
+    return false;
+  }
+  if (!check_chunk_index_contract(loaded, cfg.name + ":loaded") ||
+      !check_chunk_index_contract(strict_loaded, cfg.name + ":strict_loaded")) {
+    sqzc3d_free_chunk(built);
+    sqzc3d_free_chunk(loaded);
+    sqzc3d_free_chunk(strict_loaded);
+    std::error_code ec;
+    std::filesystem::remove(bundle_path, ec);
+    std::cout << "  - " << cfg.name << ": FAIL\n";
     return false;
   }
 

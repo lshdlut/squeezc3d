@@ -91,6 +91,10 @@ struct sqzc3dChunk {
   std::vector<std::string> analog_labels_storage;
   std::vector<const char*> point_label_ptrs;
   std::vector<const char*> analog_label_ptrs;
+  // Optional mapping from chunk-local point indices -> source total point indices.
+  // - size == n_points when available.
+  // - for chunks loaded from a bundle, this is present only if the bundle contained it.
+  std::vector<int> point_indices_total_storage;
   std::vector<std::string> type_group_name_storage;
   std::vector<const char*> type_group_name_ptrs;
   std::vector<int> type_group_starts_storage;
@@ -925,6 +929,67 @@ static int build_analog_selection(
   return sqzc3d_STATUS_INVALID_ARGUMENT;
 }
 
+struct PointSelectionMap {
+  int n_total = 0;
+  std::vector<int> head;
+  std::vector<int> next;
+
+  static PointSelectionMap build(const std::vector<int>& local_to_total, int n_total_points) {
+    PointSelectionMap map;
+    map.n_total = n_total_points;
+    if (n_total_points <= 0 || local_to_total.empty()) {
+      return map;
+    }
+    map.head.assign(static_cast<std::size_t>(n_total_points), -1);
+    map.next.assign(local_to_total.size(), -1);
+    for (int local = static_cast<int>(local_to_total.size()) - 1; local >= 0; --local) {
+      const int total = local_to_total[static_cast<std::size_t>(local)];
+      if (total < 0 || total >= n_total_points) continue;
+      map.next[static_cast<std::size_t>(local)] = map.head[static_cast<std::size_t>(total)];
+      map.head[static_cast<std::size_t>(total)] = local;
+    }
+    return map;
+  }
+
+  template <typename Fn>
+  void for_each_local_of_total(const int total, Fn&& fn) const {
+    if (total < 0 || total >= n_total) return;
+    if (head.empty()) return;
+    for (int local = head[static_cast<std::size_t>(total)]; local >= 0;
+         local = next[static_cast<std::size_t>(local)]) {
+      fn(local);
+    }
+  }
+};
+
+static bool remap_type_groups_total_to_local(
+    const std::vector<int>& src_starts,
+    const std::vector<int>& src_indices,
+    const PointSelectionMap& map,
+    const std::size_t n_groups,
+    std::vector<int>& out_starts,
+    std::vector<int>& out_indices) {
+  out_starts.assign(n_groups + 1u, 0);
+  out_indices.clear();
+  if (n_groups == 0u) return true;
+  if (src_starts.size() != n_groups + 1u) return false;
+  out_starts[0] = 0;
+  for (std::size_t g = 0; g < n_groups; ++g) {
+    const int s = src_starts[g];
+    const int e = src_starts[g + 1u];
+    if (s < 0 || e < s || e > static_cast<int>(src_indices.size())) {
+      out_starts[g + 1u] = static_cast<int>(out_indices.size());
+      continue;
+    }
+    for (int k = s; k < e; ++k) {
+      const int total = src_indices[static_cast<std::size_t>(k)];
+      map.for_each_local_of_total(total, [&](const int local) { out_indices.push_back(local); });
+    }
+    out_starts[g + 1u] = static_cast<int>(out_indices.size());
+  }
+  return true;
+}
+
 static int select_read_policy(
     const sqzc3d_build_opt_t* opt,
     int n_points_total,
@@ -1411,6 +1476,10 @@ sqzc3d_API int sqzc3d_build_chunks(
     return st_analog;
   }
 
+  // Store the local->total point selection mapping for downstream remaps/exports.
+  chunk_impl->point_indices_total_storage = point_indices;
+  const auto point_map = PointSelectionMap::build(chunk_impl->point_indices_total_storage, meta.n_points);
+
   int analog_enable = opt->analog_enable;
   if (analog_enable == sqzc3d_ANALOG_EN_AUTO) {
     const int effective_analog_frames = (analog_range_count < frame_count) ? analog_range_count : frame_count;
@@ -1484,59 +1553,28 @@ sqzc3d_API int sqzc3d_build_chunks(
     }
   }
 
-  // POINT:TYPE_GROUPS / group params are indexed in the *source* point index space.
-  // When we build a chunk with point selection, we must remap those indices into the
-  // chunk-local [0..n_points) index space, otherwise exported bundles can become
-  // unloadable (DIMENSION_MISMATCH) for subset selections.
+  // POINT:TYPE_GROUPS / group params are indexed in the source total point index space.
+  // Remap into the chunk-local [0..n_points) index space for the chunk contract.
   chunk_impl->type_group_name_storage = dec_impl->reader->type_group_names;
-  const auto& src_type_group_starts = dec_impl->reader->type_group_starts;
-  const auto& src_type_group_indices = dec_impl->reader->type_group_indices;
   chunk_impl->type_group_starts_storage.clear();
   chunk_impl->type_group_indices_storage.clear();
-  if (!chunk_impl->type_group_name_storage.empty() &&
-      static_cast<std::size_t>(chunk_impl->type_group_name_storage.size() + 1u) == src_type_group_starts.size()) {
-    const int n_points_total = meta.n_points;
-    const int n_points_sel = static_cast<int>(point_indices.size());
-    // Build an index mapping from original point index -> list of selected local indices.
-    // Using a linked-list per original index avoids allocating many vectors.
-    std::vector<int> head;
-    head.assign(static_cast<std::size_t>(n_points_total), -1);
-    std::vector<int> next;
-    next.assign(static_cast<std::size_t>(n_points_sel), -1);
-    for (int local = n_points_sel - 1; local >= 0; --local) {
-      const int orig = point_indices[static_cast<std::size_t>(local)];
-      if (orig < 0 || orig >= n_points_total) continue;
-      next[static_cast<std::size_t>(local)] = head[static_cast<std::size_t>(orig)];
-      head[static_cast<std::size_t>(orig)] = local;
-    }
-
-    chunk_impl->type_group_starts_storage.resize(src_type_group_starts.size(), 0);
-    chunk_impl->type_group_starts_storage[0] = 0;
-    for (std::size_t g = 0; g < chunk_impl->type_group_name_storage.size(); ++g) {
-      const int s = src_type_group_starts[g];
-      const int e = src_type_group_starts[g + 1u];
-      if (s < 0 || e < s || e > static_cast<int>(src_type_group_indices.size())) {
-        // Malformed source metadata; keep groups but empty their indices.
-        chunk_impl->type_group_starts_storage[g + 1u] =
-            static_cast<int>(chunk_impl->type_group_indices_storage.size());
-        continue;
-      }
-      for (int k = s; k < e; ++k) {
-        const int orig = src_type_group_indices[static_cast<std::size_t>(k)];
-        if (orig < 0 || orig >= n_points_total) continue;
-        for (int local = head[static_cast<std::size_t>(orig)]; local >= 0;
-             local = next[static_cast<std::size_t>(local)]) {
-          chunk_impl->type_group_indices_storage.push_back(local);
-        }
-      }
-      chunk_impl->type_group_starts_storage[g + 1u] =
-          static_cast<int>(chunk_impl->type_group_indices_storage.size());
+  if (!chunk_impl->type_group_name_storage.empty()) {
+    if (!remap_type_groups_total_to_local(
+            dec_impl->reader->type_group_starts,
+            dec_impl->reader->type_group_indices,
+            point_map,
+            chunk_impl->type_group_name_storage.size(),
+            chunk_impl->type_group_starts_storage,
+            chunk_impl->type_group_indices_storage)) {
+      // Malformed source metadata; keep group names but empty their indices.
+      chunk_impl->type_group_starts_storage.assign(chunk_impl->type_group_name_storage.size() + 1u, 0);
+      chunk_impl->type_group_indices_storage.clear();
     }
   } else {
-    // Preserve original metadata for full-point (identity) chunks or for chunks without type group names.
-    // If type_group_names is empty, starts may still contain a single "0" sentinel from the reader; that's fine.
-    chunk_impl->type_group_starts_storage = src_type_group_starts;
-    chunk_impl->type_group_indices_storage = src_type_group_indices;
+    // Preserve original metadata for chunks without type group names.
+    // If type_group_names is empty, starts may still contain a single "0" sentinel from the reader.
+    chunk_impl->type_group_starts_storage = dec_impl->reader->type_group_starts;
+    chunk_impl->type_group_indices_storage = dec_impl->reader->type_group_indices;
   }
   if (!chunk_impl->type_group_name_storage.empty()) {
     chunk_impl->type_group_name_ptrs.resize(chunk_impl->type_group_name_storage.size());
@@ -1807,6 +1845,9 @@ sqzc3d_API int sqzc3d_export_bundle(
   const auto reason = chunk->reason ? chunk->reason : "";
   const auto n_point_labels = (chunk->point_labels == nullptr ? 0 : chunk->n_points);
   const auto n_analog_labels = (chunk->analog_labels == nullptr ? 0 : chunk->n_analogs);
+  const auto* chunk_impl = static_cast<const sqzc3dChunk*>(chunk->impl);
+  const bool has_point_indices_total =
+      chunk_impl && static_cast<int>(chunk_impl->point_indices_total_storage.size()) == chunk->n_points;
   const int n_type_group_starts =
       chunk->type_group_starts ? (chunk->n_type_groups >= 0 ? chunk->n_type_groups + 1 : 0) : 0;
   const int n_type_group_indices = (chunk->type_group_starts && chunk->n_type_groups >= 0 &&
@@ -1927,6 +1968,11 @@ sqzc3d_API int sqzc3d_export_bundle(
   meta_out << "  \"point_labels\": [";
   write_string_list(chunk->point_labels, static_cast<int>(n_point_labels));
   meta_out << "],\n";
+  if (has_point_indices_total) {
+    meta_out << "  \"point_indices_total\": [";
+    write_int_list(chunk_impl->point_indices_total_storage.data(), chunk->n_points);
+    meta_out << "],\n";
+  }
   meta_out << "  \"analog_labels\": [";
   write_string_list(chunk->analog_labels, static_cast<int>(n_analog_labels));
   meta_out << "],\n";
@@ -2157,12 +2203,14 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
 
   std::vector<std::string> point_labels;
   std::vector<std::string> analog_labels;
+  std::vector<int> point_indices_total;
   std::vector<std::string> type_group_names;
   std::vector<int> type_group_starts;
   std::vector<int> type_group_indices;
   const bool has_type_group_names = parse_bundle_string_list(meta_text, "type_group_names", type_group_names);
   const bool has_type_group_starts = parse_bundle_int_list(meta_text, "type_group_starts", type_group_starts);
   const bool has_type_group_indices = parse_bundle_int_list(meta_text, "type_group_indices", type_group_indices);
+  const bool has_point_indices_total = parse_bundle_int_list(meta_text, "point_indices_total", point_indices_total);
   if (!parse_bundle_string_list(meta_text, "point_labels", point_labels) ||
       !parse_bundle_string_list(meta_text, "analog_labels", analog_labels) ||
       (is_v2 &&
@@ -2195,6 +2243,16 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   for (const int idx : type_group_indices) {
     if (idx < 0 || idx >= n_points) {
       return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "type group index out of bounds");
+    }
+  }
+  if (has_point_indices_total) {
+    if (static_cast<int64_t>(point_indices_total.size()) != n_points) {
+      return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "point_indices_total count mismatch");
+    }
+    for (const int idx : point_indices_total) {
+      if (idx < 0 || static_cast<int64_t>(idx) >= n_points_total) {
+        return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "point_indices_total out of bounds");
+      }
     }
   }
 
@@ -2417,6 +2475,11 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   chunk_impl->type_group_indices_storage = std::move(type_group_indices);
   chunk_impl->point_labels_storage = std::move(point_labels);
   chunk_impl->analog_labels_storage = std::move(analog_labels);
+  if (has_point_indices_total) {
+    chunk_impl->point_indices_total_storage = std::move(point_indices_total);
+  } else {
+    chunk_impl->point_indices_total_storage.clear();
+  }
   chunk_impl->point_label_ptrs.resize(chunk_impl->point_labels_storage.size());
   for (std::size_t i = 0; i < chunk_impl->point_labels_storage.size(); ++i) {
     chunk_impl->point_label_ptrs[i] = chunk_impl->point_labels_storage[i].c_str();
@@ -2472,6 +2535,31 @@ sqzc3d_API int sqzc3d_chunk_num_points(const sqzc3d_chunk_t* chunk) {
 
 sqzc3d_API int sqzc3d_chunk_num_scalar(const sqzc3d_chunk_t* chunk) {
   return chunk ? chunk->n_scalar : 0;
+}
+
+sqzc3d_API int sqzc3d_chunk_point_indices_total(
+    const sqzc3d_chunk_t* chunk,
+    const int** out_point_indices_total,
+    int* out_n_points) {
+  if (out_point_indices_total) *out_point_indices_total = nullptr;
+  if (out_n_points) *out_n_points = 0;
+  if (!chunk || !chunk->impl || !out_point_indices_total || !out_n_points) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  const auto* impl = static_cast<const sqzc3dChunk*>(chunk->impl);
+  if (!impl) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (impl->point_indices_total_storage.empty()) {
+    if (chunk->n_points == 0) {
+      *out_point_indices_total = nullptr;
+      *out_n_points = 0;
+      return sqzc3d_STATUS_SUCCESS;
+    }
+    return sqzc3d_STATUS_NOT_IMPLEMENTED;
+  }
+  if (static_cast<int>(impl->point_indices_total_storage.size()) != chunk->n_points) {
+    return sqzc3d_STATUS_INTERNAL_ERROR;
+  }
+  *out_point_indices_total = impl->point_indices_total_storage.data();
+  *out_n_points = chunk->n_points;
+  return sqzc3d_STATUS_SUCCESS;
 }
 
 sqzc3d_API int sqzc3d_point_indices_for_labels(

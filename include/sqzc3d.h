@@ -103,17 +103,25 @@ typedef struct sqzc3d_build_opt_t_ {
   int struct_size;
   sqzc3d_range_t frame_range;
 
+  // Point selection.
+  //
+  // Important: when selecting by indices, indices are in the SOURCE-TOTAL point index space
+  // (the original C3D POINT:LABELS order) before chunk materialization.
   int point_sel_mode;
+  // When point_sel_mode == sqzc3d_POINT_SEL_INDICES, point_sel[i] is a SOURCE-TOTAL point index.
   const int* point_sel;
   int point_sel_count;
+  // When point_sel_mode == sqzc3d_POINT_SEL_LABELS, point_labels are matched against SOURCE labels.
   const char* const* point_labels;
   int point_labels_count;
 
   int analog_enable;          // sqzc3d_ANALOG_EN_*
   sqzc3d_range_t analog_range;  // same index space as frame_range for current implementation
   int analog_sel_mode;
+  // When analog_sel_mode == sqzc3d_ANALOG_SEL_INDICES, analog_sel[i] is a SOURCE-TOTAL analog channel index.
   const int* analog_sel;
   int analog_sel_count;
+  // When analog_sel_mode == sqzc3d_ANALOG_SEL_LABELS, analog_labels are matched against SOURCE labels.
   const char* const* analog_labels;
   int analog_labels_count;
 
@@ -130,7 +138,10 @@ typedef struct sqzc3d_build_opt_t_ {
 typedef struct sqzc3d_chunk_t_ {
   int struct_size;
   int n_frames;
+  // Number of points materialized into this chunk.
+  // Point indices exposed from this chunk use the CHUNK-LOCAL index space [0..n_points).
   int n_points;
+  // Number of points in the source C3D ("total points").
   int n_points_total;
   int n_analogs;
   int n_analog_by_frame;
@@ -159,12 +170,14 @@ typedef struct sqzc3d_chunk_t_ {
   sqzc3d_num_t* analog;
   // Same layout as analog.
   unsigned char* analog_valid;
+  // Point labels for the chunk, length n_points (CHUNK-LOCAL order).
   const char** point_labels;
+  // Analog labels for the chunk, length n_analogs (CHUNK-LOCAL order).
   const char** analog_labels;
   // Type group metadata (optional):
   // - names: length n_type_groups
   // - starts: length n_type_groups + 1, prefix offsets
-  // - indices: flattened point indices addressed by starts
+  // - indices: flattened CHUNK-LOCAL point indices addressed by starts (indices into point_labels)
   const char** type_group_names;
   const int* type_group_starts;
   const int* type_group_indices;
@@ -249,6 +262,13 @@ sqzc3d_API int sqzc3d_free_chunk(sqzc3d_chunk_t* chunk);
 sqzc3d_API int sqzc3d_chunk_num_frames(const sqzc3d_chunk_t* chunk);
 sqzc3d_API int sqzc3d_chunk_num_points(const sqzc3d_chunk_t* chunk);
 sqzc3d_API int sqzc3d_chunk_num_scalar(const sqzc3d_chunk_t* chunk);
+
+// Optional mapping from chunk-local point indices -> source total point indices.
+// If unavailable (e.g. bundles without this metadata), returns sqzc3d_STATUS_NOT_IMPLEMENTED.
+sqzc3d_API int sqzc3d_chunk_point_indices_total(
+    const sqzc3d_chunk_t* chunk,
+    const int** out_point_indices_total,
+    int* out_n_points);
 
 sqzc3d_API int sqzc3d_point_indices_for_labels(
     const sqzc3d_chunk_t* chunk,
