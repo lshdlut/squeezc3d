@@ -17,6 +17,28 @@ Subcommands:
 - `cpp`: run the C++ matrix executable (built via CMake)
 - `all`: run `native` + `wasm`
 
+## Recommended: verify all
+
+Use a single command after refactors:
+
+```bash
+python samples/verify/verify.py all ^
+  --c3d      path\to\c3d_dir ^
+  --wasm-dir path\to\wasm_out ^
+  --limit 5
+```
+
+Notes:
+- `wasm` / `all` will auto-rebuild the WASM output under `--wasm-dir` when it is missing or stale.
+- Default `--wasm-dir` is `build-wasm-verify` (or `SQZC3D_WASM_DIR` if set).
+- Rebuild requires an Emscripten toolchain (recommended: set `EMSDK_HOME`).
+
+Environment variable defaults (optional):
+
+- `C3D_DIR`: directory containing `.c3d` files
+- `SQZC3D_WASM_DIR`: directory containing `sqzc3d.js` + `sqzc3d.wasm`
+- `C3D_LIMIT`: number of wasm samples (default: 5)
+
 ## Layout
 
 - `samples/verify/verify.py`

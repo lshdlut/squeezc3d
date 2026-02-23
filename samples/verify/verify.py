@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -51,22 +53,107 @@ def _run_cpp(exe: Path, c3d_files: list[Path]) -> int:
     return int(proc.returncode)
 
 
+def _sha256_files(paths: list[Path]) -> str:
+    h = hashlib.sha256()
+    for p in paths:
+        h.update(Path(p).read_bytes())
+    return h.hexdigest()
+
+
+def _expected_wasm_stamp() -> dict:
+    root = _repo_root()
+    sqz_files = [
+        root / "src" / "sqzc3d.cpp",
+        root / "src" / "sqzc3d_c3d_stream.cpp",
+        root / "include" / "sqzc3d.h",
+        root / "include" / "sqzc3d_c3d_stream.h",
+        root / "include" / "sqzc3d_types.h",
+    ]
+    build_script = root / "samples" / "verify" / "_impl" / "build_wasm_fs.py"
+    return {
+        "schema": 1,
+        "sqzc3d_sources_sha256": _sha256_files(sqz_files),
+        "build_script_sha256": _sha256_files([build_script]),
+    }
+
+
+def _is_wasm_build_fresh(wasm_dir: Path) -> bool:
+    wasm_dir = Path(wasm_dir)
+    if not (wasm_dir / "sqzc3d.js").exists():
+        return False
+    if not (wasm_dir / "sqzc3d.wasm").exists():
+        return False
+    stamp_path = wasm_dir / "sqzc3d_wasm_stamp.json"
+    if not stamp_path.exists():
+        return False
+    try:
+        stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    expected = _expected_wasm_stamp()
+    if int(stamp.get("schema", -1)) != int(expected["schema"]):
+        return False
+    if str(stamp.get("sqzc3d_sources_sha256", "")) != str(expected["sqzc3d_sources_sha256"]):
+        return False
+    if str(stamp.get("build_script_sha256", "")) != str(expected["build_script_sha256"]):
+        return False
+    return True
+
+
+def _ensure_wasm_built(wasm_dir: Path, rebuild: bool, empp: Path | None, ezc3d_src: Path | None) -> None:
+    wasm_dir = Path(wasm_dir)
+    wasm_dir.mkdir(parents=True, exist_ok=True)
+    if _is_wasm_build_fresh(wasm_dir):
+        return
+    if not rebuild:
+        raise RuntimeError(f"WASM build is missing or stale under: {wasm_dir} (rebuild disabled).")
+
+    vdir = Path(__file__).resolve().parent
+    build_script = vdir / "_impl" / "build_wasm_fs.py"
+    build_args = ["--out-dir", str(wasm_dir)]
+    if empp is not None:
+        build_args += ["--empp", str(Path(empp))]
+    if ezc3d_src is not None:
+        build_args += ["--ezc3d-src", str(Path(ezc3d_src))]
+    rc = _run_py(build_script, build_args)
+    if rc != 0:
+        raise SystemExit(rc)
+    if not (wasm_dir / "sqzc3d.js").exists() or not (wasm_dir / "sqzc3d.wasm").exists():
+        raise RuntimeError(f"WASM build script succeeded, but output is missing under: {wasm_dir}")
+
+
 def _parse_args() -> argparse.Namespace:
+    root = _repo_root()
+    default_wasm_dir = (
+        Path(os.environ["SQZC3D_WASM_DIR"])
+        if os.environ.get("SQZC3D_WASM_DIR")
+        else (root / "build-wasm-verify")
+    )
+
     p = argparse.ArgumentParser(
         prog="samples/verify/verify.py",
         description="Single entrypoint for sqzc3d verification checks.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("all", help="Run all checks (native + wasm).")
+    p_all = sub.add_parser("all", help="Run all checks (native + wasm).")
+    p_all.add_argument("--c3d", type=Path, default=os.environ.get("C3D_DIR") or os.environ.get("C3D_FILE"))
+    p_all.add_argument("--wasm-dir", type=Path, default=default_wasm_dir)
+    p_all.add_argument("--limit", type=int, default=int(os.environ.get("C3D_LIMIT", "5")))
+    p_all.add_argument("--rebuild-wasm", action=argparse.BooleanOptionalAction, default=True)
+    p_all.add_argument("--empp", type=Path, default=None)
+    p_all.add_argument("--ezc3d-src", type=Path, default=None)
 
     p_native = sub.add_parser("native", help="Native correctness smoke vs ezc3d (Python).")
-    p_native.add_argument("--c3d", type=Path, default=os.environ.get("C3D_FILE"))
+    p_native.add_argument("--c3d", type=Path, default=os.environ.get("C3D_DIR") or os.environ.get("C3D_FILE"))
 
     p_wasm = sub.add_parser("wasm", help="Standalone wasm browser smoke (Playwright).")
-    p_wasm.add_argument("--wasm-dir", type=Path, default=os.environ.get("SQZC3D_WASM_DIR"))
+    p_wasm.add_argument("--wasm-dir", type=Path, default=default_wasm_dir)
     p_wasm.add_argument("--c3d-dir", type=Path, default=os.environ.get("C3D_DIR"))
     p_wasm.add_argument("--limit", type=int, default=int(os.environ.get("C3D_LIMIT", "5")))
+    p_wasm.add_argument("--rebuild-wasm", action=argparse.BooleanOptionalAction, default=True)
+    p_wasm.add_argument("--empp", type=Path, default=None)
+    p_wasm.add_argument("--ezc3d-src", type=Path, default=None)
 
     p_cpp = sub.add_parser("cpp", help="C++ correctness matrix executable (built via CMake).")
     p_cpp.add_argument("--exe", type=Path, default=os.environ.get("SQZC3D_VERIFY_CPP_EXE"))
@@ -95,14 +182,29 @@ def main() -> None:
             raise SystemExit(rc)
 
     if args.cmd in ("all", "wasm"):
+        wasm_dir = getattr(args, "wasm_dir", None)
+        if wasm_dir is None:
+            raise RuntimeError("Missing --wasm-dir (or set SQZC3D_WASM_DIR).")
+        _ensure_wasm_built(
+            Path(wasm_dir),
+            bool(getattr(args, "rebuild_wasm", True)),
+            getattr(args, "empp", None),
+            getattr(args, "ezc3d_src", None),
+        )
         wasm_script = vdir / "_impl" / "playwright_wasm_sqzc3d_open_modes.py"
         wasm_args: list[str] = []
-        wasm_dir = getattr(args, "wasm_dir", None)
         if wasm_dir:
             wasm_args += ["--wasm-dir", str(Path(wasm_dir))]
         c3d_dir = getattr(args, "c3d_dir", None)
+        c3d = getattr(args, "c3d", None)
         if c3d_dir:
             wasm_args += ["--c3d-dir", str(Path(c3d_dir))]
+        elif c3d:
+            p = Path(c3d)
+            if p.is_dir():
+                wasm_args += ["--c3d-dir", str(p)]
+            else:
+                wasm_args += ["--c3d-file", str(p)]
         wasm_args += ["--limit", str(int(getattr(args, "limit", 5)))]
         rc = _run_py(wasm_script, wasm_args)
         if rc != 0 and args.cmd != "all":

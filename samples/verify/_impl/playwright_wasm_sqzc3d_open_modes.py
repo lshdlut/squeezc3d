@@ -247,12 +247,18 @@ async def _run() -> int:
     if not (wasm_dir / "sqzc3d.js").exists():
         raise RuntimeError(f"Missing sqzc3d.js under: {wasm_dir}")
 
-    c3d_file_env = os.environ.get("C3D_FILE")
     c3d_files = list(args.c3d_file)
+    c3d_dir = args.c3d_dir
+    c3d_file_env = os.environ.get("C3D_FILE")
     if not c3d_files and c3d_file_env:
-        c3d_files = [Path(c3d_file_env)]
+        p = Path(c3d_file_env)
+        if p.is_dir():
+            if c3d_dir is None:
+                c3d_dir = p
+        else:
+            c3d_files = [p]
 
-    c3d_paths = _iter_c3d_files(c3d_files, args.c3d_dir, int(args.limit))
+    c3d_paths = _iter_c3d_files(c3d_files, c3d_dir, int(args.limit))
 
     port = int(args.port) if int(args.port) > 0 else _free_port()
     httpd, t = _start_static_server(wasm_dir, port)
@@ -306,4 +312,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
