@@ -108,6 +108,33 @@ cmake --build build --config Release --parallel
 
 > Compatibility note: legacy `sqzc3d_WITH_EZC3D` is tolerated for CMake compatibility and mapped to the canonical `SQZC3D_WITH_EZC3D`.
 
+### Indexing model (chunk-local)
+
+- All point indices exposed from a chunk (including `type_group_indices`) are in the **chunk-local** point index space `[0..n_points)`.
+- Optional: `sqzc3d_chunk_point_indices_total()` (and Python `Chunk.point_indices_total`) provides a mapping from **chunk-local -> source-total** point indices when available.
+
+```python
+import sqzc3d
+
+dec = sqzc3d.Decoder("path/to/file.c3d")
+chunk = dec.read(frame_count=1, points=["LHEE", "RHEE"])
+meta = chunk.meta
+
+names = meta["type_group_names"]
+starts = meta["type_group_starts"]
+indices = meta["type_group_indices"]
+labels = meta["point_labels"]
+
+# type_group_indices are chunk-local indices into meta["point_labels"].
+groups = {}
+for gi, name in enumerate(names):
+    s, e = starts[gi], starts[gi + 1]
+    groups[name] = [labels[i] for i in indices[s:e]]
+
+print(groups)
+print(chunk.point_indices_total)  # optional local->total mapping (may be None)
+```
+
 ### Runtime capability matrix
 
 | Feature | ON | OFF |

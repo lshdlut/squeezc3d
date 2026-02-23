@@ -46,6 +46,7 @@ Notes:
 | `sqzc3d_build_chunks` | Parse selected frame/point/analog ranges into a chunk object. |
 | `sqzc3d_free_chunk` | Release chunk resources. |
 | `sqzc3d_chunk_num_frames` / `sqzc3d_chunk_num_points` / `sqzc3d_chunk_num_scalar` | Access chunk shape. |
+| `sqzc3d_chunk_point_indices_total` | Optional chunk-local -> source-total point index mapping (when available). |
 | `sqzc3d_point_indices_for_labels` / `sqzc3d_analog_indices_for_labels` | Map labels to indices. |
 | `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` | Build point views by frame or index list. |
 | `sqzc3d_analogs_view_samples` / `sqzc3d_analogs_view_channels` | Build analog views by sample range or channel list. |
@@ -62,7 +63,9 @@ Notes:
 
 - `chunk->type_group_names`: group names (length `chunk->n_type_groups`).
 - `chunk->type_group_starts`: prefix-sum offsets length `n_type_groups + 1`.
-- `chunk->type_group_indices`: flattened group indices; `indices[type_group_starts[i]..type_group_starts[i+1])` are the point indices for `type_group_names[i]`.
+- `chunk->type_group_indices`: flattened group indices in the **chunk-local** point index space `[0..n_points)`;
+  `indices[type_group_starts[i]..type_group_starts[i+1])` are indices into `chunk->point_labels` for `type_group_names[i]`.
+- Optional: `sqzc3d_chunk_point_indices_total()` provides a chunk-local -> source-total mapping when available.
 
 In v0.x the default points layout is fixed:
 
@@ -100,7 +103,7 @@ Header-only helpers in `include/sqzc3d_easy.h`:
 - `sqzc3d::FrameMajorAnalogViewTCS`
   - Provide a non-contiguous (strided) frame-major view `(T, C, S)` over the underlying `(C, N)` storage.
 - `sqzc3d::PointIndicesFromTypeGroups`
-  - Convert type-group names to flat point index list.
+  - Convert type-group names to a flat **chunk-local** point index list.
 - `sqzc3d::ReorderFrameMajorToPointMajor`
   - Reorder helper for consumers requiring point-major layout.
 
