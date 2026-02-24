@@ -20,6 +20,13 @@ temp_pkg/
 .vs/
 CMakeCache.txt
 CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CMakeUserPresets.json
+Makefile
+build.ninja
+.ninja_deps
+.ninja_log
 *.vcxproj
 *.vcxproj.filters
 *.vcxproj.user
@@ -31,6 +38,12 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 *.egg-info/
 *.exp
 *.lib
@@ -40,9 +53,18 @@ __pycache__/
 *.dll
 *.exe
 *.obj
+*.o
+*.a
+*.so
+*.dylib
 
 # Local instruction files
 AGENTS.md
+.repo_local_config.json
+
+# Playwright / browser automation
+playwright-report/
+test-results/
 
 # Editors / OS
 .vscode/
