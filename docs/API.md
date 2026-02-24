@@ -1,5 +1,7 @@
 # Squeezed C3D (`sqzc3d`) API Reference
 
+Applies to `sqzc3d` v0.3.x (ABI `SQZC3D_ABI_VERSION=3`).
+
 ## Headers
 
 - `include/sqzc3d.h`: public C API
