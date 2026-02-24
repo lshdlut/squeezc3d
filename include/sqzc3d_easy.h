@@ -74,7 +74,7 @@ inline int MakeFrameWindowBuildOpt(
   if (!out_opt) return sqzc3d_STATUS_INVALID_ARGUMENT;
   if (preset_opt) {
     *out_opt = *preset_opt;
-    if (out_opt->struct_size < static_cast<int>(sizeof(*out_opt))) {
+    if (out_opt->struct_size != static_cast<int>(sizeof(*out_opt))) {
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
   } else {

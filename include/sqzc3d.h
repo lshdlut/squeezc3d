@@ -34,7 +34,7 @@ extern "C" {
 #define SQZC3D_VERSION_MINOR 2
 #define SQZC3D_VERSION_PATCH 0
 #define SQZC3D_VERSION "0.2.0"
-#define SQZC3D_ABI_VERSION 1
+#define SQZC3D_ABI_VERSION 3
 
 typedef struct sqzc3d_range_t_ {
   int start;
@@ -90,13 +90,9 @@ enum {
 
 typedef struct sqzc3d_open_opt_t_ {
   int struct_size;
-  int use_ezc3d_params;
-  int preserve_raw_params;
   int open_mode;              // sqzc3d_FILE or sqzc3d_MEMORY
-  int enable_mmap;
   int cache_labels;
   int label_norm;             // bitmask: sqzc3d_LABEL_NORM_*
-  int reserved;
 } sqzc3d_open_opt_t;
 
 typedef struct sqzc3d_build_opt_t_ {
@@ -151,7 +147,6 @@ typedef struct sqzc3d_chunk_t_ {
   int n_scalar;
   int valid_nscalar;
   int n_analog_scalar;
-  int raw_params_nbytes;
 
   int points_layout;
   int read_policy;
@@ -182,7 +177,6 @@ typedef struct sqzc3d_chunk_t_ {
   const int* type_group_starts;
   const int* type_group_indices;
   const char* reason;  // optional human-readable status/mismatch info owned by chunk
-  const sqzc3d_byte_t* raw_params;
 
   void* impl;
 } sqzc3d_chunk_t;

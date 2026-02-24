@@ -145,11 +145,6 @@ bool compare_chunks(const sqzc3d_chunk_t* lhs, const sqzc3d_chunk_t* rhs) {
     std::cerr << "  mismatch: n_analog_scalar=" << lhs->n_analog_scalar << " vs " << rhs->n_analog_scalar << "\n";
     return false;
   }
-  if (lhs->raw_params_nbytes != rhs->raw_params_nbytes) {
-    std::cerr << "  mismatch: raw_params_nbytes=" << lhs->raw_params_nbytes << " vs " << rhs->raw_params_nbytes
-              << "\n";
-    return false;
-  }
   if (lhs->points_layout != rhs->points_layout) {
     std::cerr << "  mismatch: points_layout=" << lhs->points_layout << " vs " << rhs->points_layout << "\n";
     return false;
@@ -226,9 +221,6 @@ bool compare_chunks(const sqzc3d_chunk_t* lhs, const sqzc3d_chunk_t* rhs) {
     }
   }
 
-  for (int i = 0; i < lhs->raw_params_nbytes; ++i) {
-    if (lhs->raw_params[i] != rhs->raw_params[i]) return false;
-  }
   return true;
 }
 
@@ -467,6 +459,25 @@ int main(int argc, char* argv[]) {
     }
 
     bool file_ok = true;
+
+    // Verify AUTO analog size gate fails fast (no silent skip).
+    if (base->n_analogs > 0 && base->n_analog_by_frame > 0) {
+      sqzc3d_build_opt_t gate_opt = base_opt;
+      gate_opt.frame_range = {0, 1};
+      gate_opt.analog_range = {0, 1};
+      gate_opt.analog_enable = sqzc3d_ANALOG_EN_AUTO;
+      gate_opt.analog_size_soft_limit_bytes = 1;
+
+      sqzc3d_chunk_t* gate_chunk = nullptr;
+      const int st_gate = sqzc3d_build_chunks(dec, &gate_opt, &gate_chunk);
+      if (st_gate != sqzc3d_STATUS_INVALID_ARGUMENT || gate_chunk != nullptr) {
+        std::cerr << "  mismatch: analog AUTO gate should fail; status=" << st_gate
+                  << " chunk=" << (gate_chunk ? "non-null" : "null") << "\n";
+        if (gate_chunk) sqzc3d_free_chunk(gate_chunk);
+        file_ok = false;
+      }
+    }
+
     for (int i = 0; i < static_cast<int>(cases.size()); ++i) {
       if (!run_one_case(dec, cases[i], file_path, file_idx, i)) {
         file_ok = false;

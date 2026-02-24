@@ -21,6 +21,12 @@
 | `sqzc3d_version()` | Return the semantic version string. |
 | `sqzc3d_abi_version()` | Return the ABI version integer. |
 
+Default behavior notes:
+- Option structs must set `struct_size == sizeof(struct)`; use `sqzc3d_default_*_opt(...)` to initialize.
+- `sqzc3d_default_build_opt(...)` materializes analogs by default (`analog_enable = sqzc3d_ANALOG_EN_ON`).
+- When `analog_enable = sqzc3d_ANALOG_EN_AUTO`, `sqzc3d_build_chunks` enforces `analog_size_soft_limit_bytes`
+  (default `500 MiB`) and fails with `sqzc3d_STATUS_INVALID_ARGUMENT` if the projected analog payload exceeds the limit.
+
 ## Life-cycle
 
 | API | Purpose |
@@ -148,7 +154,7 @@ High-level Python exports:
 
 `Decoder`:
 
-- `Decoder(path, preserve_raw_params=False, label_norm=sqzc3d.SQZC3D_LABEL_NORM_EXACT)`
+- `Decoder(path, label_norm=sqzc3d.SQZC3D_LABEL_NORM_EXACT)`
 - `Decoder.read(start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None)`
 - `Decoder.close()`
 - `Decoder.source_path` (read-only)

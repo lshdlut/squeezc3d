@@ -78,14 +78,12 @@ struct C3dStreamReader {
   std::vector<std::string> type_group_names;
   std::vector<int> type_group_starts;
   std::vector<int> type_group_indices;
-  std::vector<std::uint8_t> raw_params;
 };
 
 // Open C3D and retain header/meta/labels.
 sqzc3d_status sqzc3d_c3d_stream_open_file(
     C3dStreamReader* reader,
-    const char* file_path,
-    bool preserve_raw_params);
+    const char* file_path);
 void sqzc3d_c3d_stream_close(C3dStreamReader* reader);
 
 // Set desired output length unit for subsequent xyz reads.

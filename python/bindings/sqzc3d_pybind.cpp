@@ -199,16 +199,15 @@ struct PyChunk;
 struct PyDecoder {
   DecoderHolder handle;
 
-  PyDecoder(const std::string& source_path, bool preserve_raw_params = false, int label_norm = sqzc3d_LABEL_NORM_EXACT) {
+  PyDecoder(const std::string& source_path, int label_norm = sqzc3d_LABEL_NORM_EXACT) {
     sqzc3d_open_opt_t opt{};
     sqzc3d_default_open_opt(&opt);
-    opt.preserve_raw_params = preserve_raw_params ? 1 : 0;
     opt.label_norm = label_norm;
     CheckStatus(sqzc3d_open_file(&handle.dec, source_path.c_str(), &opt), "sqzc3d_open_file");
     handle.source_path = source_path;
   }
 
-  PyDecoder(py::buffer buffer, bool preserve_raw_params = false, int label_norm = sqzc3d_LABEL_NORM_EXACT) {
+  PyDecoder(py::buffer buffer, int label_norm = sqzc3d_LABEL_NORM_EXACT) {
     auto view = buffer.request();
     if (view.itemsize <= 0) {
       throw std::runtime_error("input buffer has invalid itemsize");
@@ -219,7 +218,6 @@ struct PyDecoder {
     const auto n_bytes = static_cast<int>(view.size * view.itemsize);
     sqzc3d_open_opt_t opt{};
     sqzc3d_default_open_opt(&opt);
-    opt.preserve_raw_params = preserve_raw_params ? 1 : 0;
     opt.label_norm = label_norm;
     CheckStatus(sqzc3d_open_memory(&handle.dec, view.ptr, n_bytes, &opt), "sqzc3d_open_memory");
   }
@@ -738,9 +736,9 @@ PYBIND11_MODULE(_core, m) {
       py::arg("strict") = true);
 
   py::class_<PyDecoder>(m, "Decoder")
-      .def(py::init<const std::string&, bool, int>(), py::arg("source_path"), py::arg("preserve_raw_params") = false,
+      .def(py::init<const std::string&, int>(), py::arg("source_path"),
            py::arg("label_norm") = static_cast<int>(sqzc3d_LABEL_NORM_EXACT))
-      .def(py::init<py::buffer, bool, int>(), py::arg("data"), py::arg("preserve_raw_params") = false,
+      .def(py::init<py::buffer, int>(), py::arg("data"),
            py::arg("label_norm") = static_cast<int>(sqzc3d_LABEL_NORM_EXACT))
       .def("read",
            &PyDecoder::read,

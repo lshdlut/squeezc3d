@@ -99,7 +99,6 @@ struct sqzc3dChunk {
   std::vector<const char*> type_group_name_ptrs;
   std::vector<int> type_group_starts_storage;
   std::vector<int> type_group_indices_storage;
-  std::vector<sqzc3d_byte_t> raw_params;
   std::string reason;
   int label_norm = sqzc3d_LABEL_NORM_EXACT;
 };
@@ -706,12 +705,6 @@ static std::uint64_t checksum_fnv1a_64(const void* data, std::size_t nbytes) {
   return h;
 }
 
-static std::uint64_t dtype_bytes(const std::string& dtype) {
-  if (dtype == "float64") return sizeof(sqzc3d_num_t);
-  if (dtype == "uint8") return sizeof(std::uint8_t);
-  return 0;
-}
-
 template <typename T>
 static std::uint64_t section_count_max() {
   return std::numeric_limits<std::size_t>::max() / sizeof(T);
@@ -805,15 +798,6 @@ static void set_error(
   impl->last_error_detail.index = index;
   impl->last_error_detail.message = message;
   dec->last_error = impl->last_error.c_str();
-}
-
-static void set_error(
-    sqzc3d_dec_t* dec,
-    const std::string& message,
-    const char* api = nullptr,
-    const char* section = nullptr,
-    int index = -1) {
-  set_error(dec, sqzc3d_STATUS_INVALID_ARGUMENT, message, api, section, index);
 }
 
 static void reset_error(sqzc3d_dec_t* dec) {
@@ -1038,13 +1022,9 @@ static int select_read_policy(
 sqzc3d_API void sqzc3d_default_open_opt(sqzc3d_open_opt_t* out_opt) {
   if (!out_opt) return;
   out_opt->struct_size = static_cast<int>(sizeof(*out_opt));
-  out_opt->use_ezc3d_params = 1;
-  out_opt->preserve_raw_params = 0;
   out_opt->open_mode = sqzc3d_FILE;
-  out_opt->enable_mmap = 1;
   out_opt->cache_labels = 1;
   out_opt->label_norm = sqzc3d_LABEL_NORM_EXACT;
-  out_opt->reserved = 0;
 }
 
 sqzc3d_API void sqzc3d_default_build_opt(sqzc3d_build_opt_t* out_opt) {
@@ -1056,7 +1036,7 @@ sqzc3d_API void sqzc3d_default_build_opt(sqzc3d_build_opt_t* out_opt) {
   out_opt->point_sel_count = 0;
   out_opt->point_labels = nullptr;
   out_opt->point_labels_count = 0;
-  out_opt->analog_enable = sqzc3d_ANALOG_EN_AUTO;
+  out_opt->analog_enable = sqzc3d_ANALOG_EN_ON;
   out_opt->analog_range = {0, -1};
   out_opt->analog_sel_mode = sqzc3d_ANALOG_SEL_ALL;
   out_opt->analog_sel = nullptr;
@@ -1070,7 +1050,7 @@ sqzc3d_API void sqzc3d_default_build_opt(sqzc3d_build_opt_t* out_opt) {
   out_opt->read_policy = sqzc3d_READ_POLICY_AUTO;
   out_opt->dense_threshold_ratio = 0.25;
   out_opt->io_buffer_bytes = 4u << 20;
-  out_opt->analog_size_soft_limit_bytes = 64LL << 20;
+  out_opt->analog_size_soft_limit_bytes = 500LL << 20;
 }
 
 sqzc3d_API void sqzc3d_apply_preset_stream_frame_all(sqzc3d_build_opt_t* out_opt) {
@@ -1188,17 +1168,13 @@ sqzc3d_API int sqzc3d_open_file(
   }
   sqzc3d_open_opt_t opt_v{};
   sqzc3d_default_open_opt(&opt_v);
-  const sqzc3d_open_opt_t* opt_in = opt;
-  if (opt && opt->struct_size <= 0) {
-    opt_in = &opt_v;
-  } else if (opt) {
-    if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
-      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file: opt struct_size too small", "sqzc3d_open_file");
+  const sqzc3d_open_opt_t* opt_in = &opt_v;
+  if (opt) {
+    if (opt->struct_size != static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_file: opt struct_size mismatch", "sqzc3d_open_file");
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
     opt_v = *opt;
-  } else {
-    opt_in = &opt_v;
   }
   *out_dec = nullptr;
   auto* dec_raw = new (std::nothrow) sqzc3d_dec_t{};
@@ -1220,7 +1196,7 @@ sqzc3d_API int sqzc3d_open_file(
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
     const int open_st = sqzc3d::sqzc3d_c3d_stream_open_file(
-        impl->reader.get(), file_path, opt_in->preserve_raw_params != 0);
+        impl->reader.get(), file_path);
     if (open_st != sqzc3d_STATUS_SUCCESS) {
       const std::string msg = "failed to open c3d file: " + std::string(file_path);
       set_error(dec.get(), open_st, msg, "sqzc3d_open_file");
@@ -1268,22 +1244,13 @@ sqzc3d_API int sqzc3d_open_memory(
   *out_dec = nullptr;
   sqzc3d_open_opt_t opt_v{};
   sqzc3d_default_open_opt(&opt_v);
-  const sqzc3d_open_opt_t* opt_in = opt;
-  if (opt && opt->struct_size <= 0) {
-    opt_in = &opt_v;
-  } else if (opt) {
-    if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
-      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: opt struct_size too small", "sqzc3d_open_memory");
+  const sqzc3d_open_opt_t* opt_in = &opt_v;
+  if (opt) {
+    if (opt->struct_size != static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
+      set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: opt struct_size mismatch", "sqzc3d_open_memory");
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
     opt_v = *opt;
-  } else {
-    opt_in = &opt_v;
-  }
-  if (opt_in->struct_size > 0 &&
-      opt_in->struct_size < static_cast<int>(sizeof(sqzc3d_open_opt_t))) {
-    set_error(nullptr, sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory: opt struct_size too small", "sqzc3d_open_memory");
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
 
   std::filesystem::path tmp_path;
@@ -1431,7 +1398,7 @@ sqzc3d_API int sqzc3d_build_chunks(
   return sqzc3d_STATUS_NOT_IMPLEMENTED;
 #endif
   if (!dec || !opt || !out_chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_build_opt_t))) {
+  if (opt->struct_size != static_cast<int>(sizeof(sqzc3d_build_opt_t))) {
     return sqzc3d_STATUS_INVALID_ARGUMENT;
   }
   const auto* dec_impl = static_cast<const sqzc3dDec*>(dec->impl);
@@ -1499,10 +1466,18 @@ sqzc3d_API int sqzc3d_build_chunks(
       analog_enable = sqzc3d_ANALOG_EN_OFF;
       if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
       chunk_impl->reason += "analog skipped: empty channel selection";
-    } else if (projected_bytes > opt->analog_size_soft_limit_bytes) {
-      analog_enable = sqzc3d_ANALOG_EN_OFF;
-      if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
-      chunk_impl->reason += "analog skipped by size gate";
+    } else if (opt->analog_size_soft_limit_bytes > 0 &&
+               projected_bytes > opt->analog_size_soft_limit_bytes) {
+      const std::string msg =
+          "analog projected size " + std::to_string(projected_bytes) +
+          " exceeds analog_size_soft_limit_bytes=" + std::to_string(opt->analog_size_soft_limit_bytes) +
+          " (set analog_enable=OFF or raise limit)";
+      set_error(const_cast<sqzc3d_dec_t*>(dec),
+                sqzc3d_STATUS_INVALID_ARGUMENT,
+                msg,
+                "sqzc3d_build_chunks");
+      delete chunk;
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
   }
   if (opt->analog_enable == sqzc3d_ANALOG_EN_OFF) analog_enable = sqzc3d_ANALOG_EN_OFF;
@@ -1520,7 +1495,6 @@ sqzc3d_API int sqzc3d_build_chunks(
   chunk_impl->point_scale = meta.point_scale;
   chunk_impl->header_scale = meta.header_scale;
   chunk_impl->label_norm = dec_impl->label_norm;
-  chunk_impl->raw_params = dec_impl->reader->raw_params;
 
   chunk_impl->point_labels_storage.reserve(point_indices.size());
   for (int idx : point_indices) {
@@ -1770,7 +1744,6 @@ sqzc3d_API int sqzc3d_build_chunks(
   chunk->residual_gate_mm = chunk_impl->residual_gate_mm;
   chunk->point_scale = chunk_impl->point_scale;
   chunk->header_scale = chunk_impl->header_scale;
-  chunk->raw_params_nbytes = static_cast<int>(chunk_impl->raw_params.size());
   chunk->points_xyz = chunk_impl->points_xyz_storage.empty() ? nullptr : chunk_impl->points_xyz_storage.data();
   chunk->points_valid = chunk_impl->points_valid_storage.empty() ? nullptr : chunk_impl->points_valid_storage.data();
   chunk->analog = chunk_impl->analog_storage.empty() ? nullptr : chunk_impl->analog_storage.data();
@@ -1780,7 +1753,6 @@ sqzc3d_API int sqzc3d_build_chunks(
   chunk->type_group_names = chunk_impl->type_group_name_ptrs.empty() ? nullptr : chunk_impl->type_group_name_ptrs.data();
   chunk->type_group_starts = chunk_impl->type_group_starts_storage.empty() ? nullptr : chunk_impl->type_group_starts_storage.data();
   chunk->type_group_indices = chunk_impl->type_group_indices_storage.empty() ? nullptr : chunk_impl->type_group_indices_storage.data();
-  chunk->raw_params = chunk_impl->raw_params.empty() ? nullptr : chunk_impl->raw_params.data();
   chunk->reason = chunk_impl->reason.empty() ? nullptr : chunk_impl->reason.c_str();
   chunk->impl = chunk_impl.release();
   *out_chunk = chunk;
@@ -1813,20 +1785,17 @@ sqzc3d_API int sqzc3d_export_bundle(
   const bool has_points_valid = chunk->points_valid != nullptr && chunk->valid_nscalar > 0;
   const bool has_analogs = chunk->analog != nullptr && chunk->n_analog_scalar > 0;
   const bool has_analog_valid = chunk->analog_valid != nullptr && chunk->n_analog_scalar > 0;
-  const bool has_raw_params = chunk->raw_params != nullptr && chunk->raw_params_nbytes > 0;
 
   const std::uint64_t points_xyz_count = has_points_xyz ? static_cast<std::uint64_t>(chunk->n_scalar) : 0u;
   const std::uint64_t points_valid_count =
       has_points_valid ? static_cast<std::uint64_t>(chunk->valid_nscalar) : 0u;
   const std::uint64_t analog_count = has_analogs ? static_cast<std::uint64_t>(chunk->n_analog_scalar) : 0u;
   const std::uint64_t analog_valid_count = has_analog_valid ? static_cast<std::uint64_t>(chunk->n_analog_scalar) : 0u;
-  const std::uint64_t raw_params_count = has_raw_params ? static_cast<std::uint64_t>(chunk->raw_params_nbytes) : 0u;
 
   const auto bytes_points_xyz = points_xyz_count * static_cast<std::uint64_t>(sizeof(sqzc3d_num_t));
   const auto bytes_points_valid = points_valid_count * static_cast<std::uint64_t>(sizeof(unsigned char));
   const auto bytes_analogs = analog_count * static_cast<std::uint64_t>(sizeof(sqzc3d_num_t));
   const auto bytes_analog_valid = analog_valid_count * static_cast<std::uint64_t>(sizeof(unsigned char));
-  const auto bytes_raw_params = raw_params_count * static_cast<std::uint64_t>(sizeof(sqzc3d_byte_t));
 
   std::uint64_t cursor = 0u;
   const std::uint64_t points_xyz_offset = cursor;
@@ -1837,8 +1806,6 @@ sqzc3d_API int sqzc3d_export_bundle(
   cursor += has_analogs ? bytes_analogs : 0u;
   const std::uint64_t analog_valid_offset = cursor;
   cursor += has_analog_valid ? bytes_analog_valid : 0u;
-  const std::uint64_t raw_params_offset = cursor;
-  cursor += has_raw_params ? bytes_raw_params : 0u;
   (void)cursor;
 
   std::ostringstream meta_out;
@@ -1869,7 +1836,6 @@ sqzc3d_API int sqzc3d_export_bundle(
   meta_out << "  \"valid_nscalar\": " << chunk->valid_nscalar << ",\n";
   meta_out << "  \"n_analog_scalar\": " << chunk->n_analog_scalar << ",\n";
   meta_out << "  \"n_type_groups\": " << chunk->n_type_groups << ",\n";
-  meta_out << "  \"raw_params_nbytes\": " << chunk->raw_params_nbytes << ",\n";
   meta_out << "  \"points_layout\": \"" << points_layout_name(chunk->points_layout) << "\",\n";
   meta_out << "  \"points_pack\": \"" << points_pack_name(chunk->points_pack) << "\",\n";
   meta_out << "  \"read_policy\": \"" << read_policy_name(chunk->read_policy) << "\",\n";
@@ -1954,15 +1920,6 @@ sqzc3d_API int sqzc3d_export_bundle(
       "uint8",
       bytes_analog_valid,
       section_checksum(chunk->analog_valid, static_cast<std::size_t>(bytes_analog_valid)),
-      true);
-  write_section(
-      "raw_params",
-      has_raw_params,
-      raw_params_offset,
-      raw_params_count,
-      "uint8",
-      bytes_raw_params,
-      section_checksum(chunk->raw_params, static_cast<std::size_t>(bytes_raw_params)),
       false);
   meta_out << "  },\n";
   meta_out << "  \"point_labels\": [";
@@ -2003,7 +1960,6 @@ sqzc3d_API int sqzc3d_export_bundle(
     if (has_points_valid) write_num(data_out, chunk->points_valid, points_valid_count * sizeof(unsigned char));
     if (has_analogs) write_num(data_out, chunk->analog, analog_count * sizeof(sqzc3d_num_t));
     if (has_analog_valid) write_num(data_out, chunk->analog_valid, analog_valid_count * sizeof(unsigned char));
-    if (has_raw_params) write_num(data_out, chunk->raw_params, raw_params_count * sizeof(sqzc3d_byte_t));
     if (!data_out.good()) return sqzc3d_STATUS_INTERNAL_ERROR;
 
     std::ofstream meta_file(meta_path, std::ios::binary | std::ios::trunc);
@@ -2023,7 +1979,6 @@ sqzc3d_API int sqzc3d_export_bundle(
   if (has_points_valid) write_num(container_out, chunk->points_valid, points_valid_count * sizeof(unsigned char));
   if (has_analogs) write_num(container_out, chunk->analog, analog_count * sizeof(sqzc3d_num_t));
   if (has_analog_valid) write_num(container_out, chunk->analog_valid, analog_valid_count * sizeof(unsigned char));
-  if (has_raw_params) write_num(container_out, chunk->raw_params, raw_params_count * sizeof(sqzc3d_byte_t));
   if (!container_out.good()) return sqzc3d_STATUS_INTERNAL_ERROR;
   return sqzc3d_STATUS_SUCCESS;
 }
@@ -2051,7 +2006,7 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
     sqzc3d_DEBUG_BUNDLE_LOG(stage);
     return code;
   };
-  if (opt->struct_size > 0 && opt->struct_size < static_cast<int>(sizeof(sqzc3d_bundle_load_opt_t))) {
+  if (opt->struct_size != static_cast<int>(sizeof(sqzc3d_bundle_load_opt_t))) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "invalid bundle load option struct");
   }
   if (!bundle_dir || !out_chunk || bundle_dir[0] == '\0') {
@@ -2260,26 +2215,11 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   BundleSection points_valid{};
   BundleSection analogs{};
   BundleSection analog_valid{};
-  BundleSection raw_params{};
   if (!parse_bundle_section(meta_text, "points_xyz", &points_xyz) ||
       !parse_bundle_section(meta_text, "points_valid", &points_valid) ||
       !parse_bundle_section_if_present(meta_text, "analogs", &analogs) ||
-      !parse_bundle_section_if_present(meta_text, "analog_valid", &analog_valid) ||
-      !parse_bundle_section_if_present(meta_text, "raw_params", &raw_params)) {
+      !parse_bundle_section_if_present(meta_text, "analog_valid", &analog_valid)) {
     return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "sections parse failed");
-  }
-
-  int64_t raw_params_nbytes = 0;
-  const bool has_raw_params_nbytes = parse_bundle_int_value(meta_text, "raw_params_nbytes", &raw_params_nbytes);
-  if (has_raw_params_nbytes && raw_params_nbytes < 0) {
-    return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "negative raw_params_nbytes");
-  }
-  if (raw_params.present && !has_raw_params_nbytes) {
-    raw_params_nbytes = static_cast<int64_t>(raw_params.count);
-  }
-  if (raw_params.present && has_raw_params_nbytes &&
-      static_cast<std::uint64_t>(raw_params_nbytes) != raw_params.count) {
-    return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "raw section metadata mismatch");
   }
 
   if (n_analog_scalar != n_analogs * n_analog_by_frame * n_frames) {
@@ -2450,25 +2390,6 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
     chunk_impl->analog_storage.clear();
     chunk_impl->analog_valid_storage.clear();
   }
-  if ((raw_params.present || raw_params_nbytes > 0) &&
-      (!read_section_data(data_in,
-                          raw_params,
-                          "uint8",
-                          strict_schema,
-                          data_size,
-                          data_base_offset,
-                          chunk_impl->raw_params) ||
-       static_cast<int64_t>(chunk_impl->raw_params.size()) != raw_params_nbytes)) {
-    delete chunk;
-    return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "raw_params read failed");
-  }
-  if (raw_params_nbytes > 0 && !verify_section_checksum(
-          raw_params,
-          chunk_impl->raw_params.empty() ? nullptr : chunk_impl->raw_params.data(),
-          chunk_impl->raw_params.size() * sizeof(sqzc3d_byte_t))) {
-    delete chunk;
-    return fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "raw_params checksum mismatch");
-  }
 
   chunk_impl->type_group_name_storage = std::move(type_group_names);
   chunk_impl->type_group_starts_storage = std::move(type_group_starts);
@@ -2510,16 +2431,9 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
   chunk->points_valid = chunk_impl->points_valid_storage.empty() ? nullptr : chunk_impl->points_valid_storage.data();
   chunk->analog = chunk_impl->analog_storage.empty() ? nullptr : chunk_impl->analog_storage.data();
   chunk->analog_valid = chunk_impl->analog_valid_storage.empty() ? nullptr : chunk_impl->analog_valid_storage.data();
-  chunk->raw_params = chunk_impl->raw_params.empty() ? nullptr : chunk_impl->raw_params.data();
   chunk->point_labels = chunk_impl->point_label_ptrs.empty() ? nullptr : chunk_impl->point_label_ptrs.data();
   chunk->analog_labels = chunk_impl->analog_label_ptrs.empty() ? nullptr : chunk_impl->analog_label_ptrs.data();
   chunk->reason = chunk_impl->reason.empty() ? nullptr : chunk_impl->reason.c_str();
-  if (chunk_impl->raw_params.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-    delete chunk_impl.release();
-    delete chunk;
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
-  }
-  chunk->raw_params_nbytes = static_cast<int>(chunk_impl->raw_params.size());
   chunk->impl = chunk_impl.release();
   *out_chunk = chunk;
   return sqzc3d_STATUS_SUCCESS;

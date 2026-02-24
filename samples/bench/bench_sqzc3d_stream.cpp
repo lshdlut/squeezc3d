@@ -191,7 +191,7 @@ static int run_bench(const std::string& input, int repeat) {
   for (int i = 0; i < repeat; ++i) {
     sqzc3d::C3dStreamReader reader{};
     const auto t0 = sqzc3d_bench::Clock::now();
-    const int st = sqzc3d::sqzc3d_c3d_stream_open_file(&reader, input.c_str(), /*preserve_raw_params=*/false);
+    const int st = sqzc3d::sqzc3d_c3d_stream_open_file(&reader, input.c_str());
     const auto t1 = sqzc3d_bench::Clock::now();
     if (st != sqzc3d_STATUS_SUCCESS) {
       std::cerr << "open failed: status=" << st << "\n";

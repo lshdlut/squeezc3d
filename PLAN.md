@@ -12,7 +12,6 @@ This file tracks completion state for public delivery.
   - `SQZC3D_WITH_EZC3D=OFF` for bundle-only path.
 - Bundle v1/v2 compatibility for both directory and single-file layouts.
 - Strict bundle validation: schema, version, endianness, byte-size, checksum.
-- `raw_params` persistence and replay.
 - Public API versioning surface (`sqzc3d_version`, `sqzc3d_abi_version`) and version macros.
 - Diagnostics path: `sqzc3d_last_error`, `sqzc3d_last_error_detail`, status/error enums.
 - Capability introspection: `sqzc3d_get_features`.

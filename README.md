@@ -89,8 +89,8 @@ Example (PFERD, repeat=1):
 ## Build
 
 ```bash
-cmake -S . -B build
-cmake --build build --config Release --parallel
+cmake -S . -B local_tools/build
+cmake --build local_tools/build --config Release --parallel
 ```
 
 ### Common options
@@ -162,6 +162,10 @@ sqzc3d_build_chunks(dec, &build_opt, &chunk);
 sqzc3d_free_chunk(chunk);
 sqzc3d_close_dec(dec);
 ```
+
+Notes:
+- Always initialize option structs with `sqzc3d_default_*_opt(...)` (required: `struct_size == sizeof(struct)`).
+- Default build options materialize analogs; set `build_opt.analog_enable = sqzc3d_ANALOG_EN_OFF` to skip analogs.
 
 ### 2) Load from bundle
 
@@ -284,7 +288,7 @@ The package ships a `Decoder` + `Chunk` API intended for terminal/analysis workf
 ```python
 import sqzc3d
 
-dec = sqzc3d.Decoder("trial.c3d", preserve_raw_params=False, label_norm=sqzc3d.SQZC3D_LABEL_NORM_TRIM)
+dec = sqzc3d.Decoder("trial.c3d", label_norm=sqzc3d.SQZC3D_LABEL_NORM_TRIM)
 chunk = dec.read(
     start_frame=0,
     frame_count=-1,
