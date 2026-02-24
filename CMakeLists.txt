@@ -177,7 +177,11 @@ if (SQZC3D_WITH_EZC3D)
 endif()
 
 if (SQZC3D_BUILD_PYTHON)
-  find_package(Python COMPONENTS Interpreter Development REQUIRED)
+  # For extension modules we only need Python "Development.Module"; requiring
+  # full "Development" also pulls in the embedding/library components
+  # (e.g. Python_LIBRARIES / Development.Embed) which are not guaranteed to
+  # exist in manylinux images.
+  find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
   find_package(pybind11 CONFIG REQUIRED)
 
   pybind11_add_module(_core MODULE python/bindings/sqzc3d_pybind.cpp)
