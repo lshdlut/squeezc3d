@@ -32,6 +32,10 @@ def _find_cpp_verify_exe() -> Path | None:
 
     root = _repo_root()
     candidates = [
+        root / "local_tools" / "build" / "verify_correctness_matrix_sqzc3d",
+        root / "local_tools" / "build" / "verify_correctness_matrix_sqzc3d.exe",
+        root / "local_tools" / "build" / "Release" / "verify_correctness_matrix_sqzc3d.exe",
+        root / "local_tools" / "build" / "Debug" / "verify_correctness_matrix_sqzc3d.exe",
         root / "build" / "verify_correctness_matrix_sqzc3d",
         root / "build" / "verify_correctness_matrix_sqzc3d.exe",
         root / "build" / "Release" / "verify_correctness_matrix_sqzc3d.exe",
@@ -127,7 +131,7 @@ def _parse_args() -> argparse.Namespace:
     default_wasm_dir = (
         Path(os.environ["SQZC3D_WASM_DIR"])
         if os.environ.get("SQZC3D_WASM_DIR")
-        else (root / "build-wasm-verify")
+        else (root / "local_tools" / "build-wasm-verify")
     )
 
     p = argparse.ArgumentParser(

@@ -72,7 +72,11 @@ def _find_ezc3d_src(root: Path, override: Optional[Path]) -> Path:
             return p
 
     candidates = [
+        root / "local_tools" / "build" / "_deps" / "ezc3d-src",
+        root / "local_tools" / "build-ezc3d" / "_deps" / "ezc3d-src",
+        root / "build" / "_deps" / "ezc3d-src",
         root / "build-ezc3d" / "_deps" / "ezc3d-src",
+        root / "local_tools" / "temp_pkg" / "ezc3d_src",
         root / "temp_pkg" / "ezc3d_src",
     ]
     for c in candidates:
@@ -81,7 +85,7 @@ def _find_ezc3d_src(root: Path, override: Optional[Path]) -> Path:
 
     raise RuntimeError(
         "Could not locate ezc3d source dir. Set EZC3D_SRC_DIR or pass --ezc3d-src, "
-        "or build a native tree so build-ezc3d/_deps/ezc3d-src exists."
+        "or build a native tree so local_tools/build/_deps/ezc3d-src exists."
     )
 
 
@@ -138,9 +142,16 @@ def main() -> None:
     if build_inc_env:
         build_inc = Path(build_inc_env)
     else:
-        cand = root / "build-ezc3d" / "_deps" / "ezc3d-build" / "include"
-        if cand.exists():
-            build_inc = cand
+        candidates = [
+            root / "local_tools" / "build" / "_deps" / "ezc3d-build" / "include",
+            root / "local_tools" / "build-ezc3d" / "_deps" / "ezc3d-build" / "include",
+            root / "build" / "_deps" / "ezc3d-build" / "include",
+            root / "build-ezc3d" / "_deps" / "ezc3d-build" / "include",
+        ]
+        for cand in candidates:
+            if cand.exists():
+                build_inc = cand
+                break
     if build_inc is not None and not build_inc.exists():
         build_inc = None
 
