@@ -1,5 +1,7 @@
 # Squeezed C3D (`sqzc3d`)
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 [![CI](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml/badge.svg)](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml)
 
 `Squeezed C3D` (`sqzc3d`) is a small C/C++ library for:
