@@ -8,7 +8,7 @@
 - querying selected markers/channels by index/label,
 - exporting/importing persisted bundle files.
 
-It is designed as a pure dependency for higher-level projects (for example `sikc`) and keeps a minimal runtime API surface.
+It is designed as a pure dependency for higher-level projects (for example `smocap`) and keeps a minimal runtime API surface.
 
 ---
 
@@ -68,7 +68,7 @@ Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=10):
 
 #### Python
 
-PFERD (117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.1 (ABI 3), `ezc3d` v1.6.0):
+PFERD (117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3), `ezc3d` v1.6.0):
 
 | Metric | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |
@@ -77,7 +77,7 @@ PFERD (117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.1 (ABI 3), 
 | `window_copy_us_T256_kall` | 13.070 | 159.610 | 12.2x |
 | `peak_rss_mb` | 209.617 | 1373.492 | 6.6x |
 
-Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.1 (ABI 3), `ezc3d` v1.6.0):
+Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.2 (ABI 3), `ezc3d` v1.6.0):
 
 | Metric | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |

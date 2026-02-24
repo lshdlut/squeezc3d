@@ -1,8 +1,26 @@
 cmake_minimum_required(VERSION 3.16)
-project(sqzc3d VERSION 0.3.1 LANGUAGES CXX)
+project(sqzc3d VERSION 0.3.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+function(_sqzc3d_set_pic_if_possible target_name)
+  if (NOT TARGET "${target_name}")
+    return()
+  endif()
+
+  get_target_property(_sqzc3d_aliased "${target_name}" ALIASED_TARGET)
+  if (_sqzc3d_aliased)
+    set(target_name "${_sqzc3d_aliased}")
+  endif()
+
+  get_target_property(_sqzc3d_imported "${target_name}" IMPORTED)
+  if (_sqzc3d_imported)
+    return()
+  endif()
+
+  set_target_properties("${target_name}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endfunction()
 
 set(_SQZC3D_WITH_EZC3D_PREDEFINED OFF)
 if (DEFINED SQZC3D_WITH_EZC3D)
@@ -12,6 +30,13 @@ endif()
 option(SQZC3D_WITH_EZC3D "Enable ezc3d-backed parser implementation" ON)
 option(SQZC3D_FETCH_EZC3D "Fetch ezc3d from GitHub when not provided externally" ON)
 option(SQZC3D_BUILD_PYTHON "Build Python extension module (pybind11)" OFF)
+
+if (SQZC3D_BUILD_PYTHON AND NOT WIN32)
+  # The Python extension is a shared module. When ezc3d is fetched/built as a static library,
+  # it must be compiled with -fPIC on ELF platforms (e.g. manylinux) to link successfully.
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 set(_SQZC3D_DEFAULT_APPLY_EZC3D_PATCHES OFF)
 if (CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   # Emscripten/WASM builds may disable/limit exception catching; ezc3d uses try/catch as control flow
@@ -110,6 +135,8 @@ if (SQZC3D_WITH_EZC3D)
       )
       FetchContent_MakeAvailable(ezc3d)
       _sqzc3d_apply_ezc3d_patches("${ezc3d_SOURCE_DIR}")
+      _sqzc3d_set_pic_if_possible(ezc3d)
+      _sqzc3d_set_pic_if_possible(ezc3d::ezc3d)
       if (TARGET ezc3d)
         target_link_libraries(sqzc3d PUBLIC ezc3d)
       elseif (TARGET ezc3d::ezc3d)
@@ -134,6 +161,8 @@ if (SQZC3D_WITH_EZC3D)
       )
       FetchContent_MakeAvailable(ezc3d)
       _sqzc3d_apply_ezc3d_patches("${ezc3d_SOURCE_DIR}")
+      _sqzc3d_set_pic_if_possible(ezc3d)
+      _sqzc3d_set_pic_if_possible(ezc3d::ezc3d)
       if (TARGET ezc3d)
         target_link_libraries(sqzc3d PUBLIC ezc3d)
       elseif (TARGET ezc3d::ezc3d)
