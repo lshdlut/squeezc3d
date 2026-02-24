@@ -24,34 +24,67 @@ Only performance-relevant signals are shown:
 
 Bench method: fully load a C3D file, then measure access patterns on each library's **native loaded representation**.
 For `sqzc3d`, the native representation is the chunk's contiguous frame-major array; for `ezc3d`, it is
-`ezc3d::c3d`'s in-memory frame/point containers. Numbers below are from the C++ sample benches (repeat=1):
+`ezc3d::c3d`'s in-memory frame/point containers.
 
-- `bench_sqzc3d <file.c3d> 1`
-- `bench_ezc3d <file.c3d> 1`
+Repro commands:
 
-### Load & memory (C++)
+```bash
+# C++
+local_tools/build/Release/bench_sqzc3d.exe <file.c3d> <repeat>
+local_tools/build/Release/bench_ezc3d.exe  <file.c3d> <repeat>
 
-| Dataset | Frames | Points | sqzc3d `load_ms` | ezc3d `load_ms` | `load_speedup_x` | sqzc3d `peak_rss_mb` | ezc3d `peak_rss_mb` | `rss_ratio_x` |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| PFERD (117.96 MB) | 55,844 | 132 | 171.385 | 3,717.442 | 21.7 | 182.090 | 1,019.414 | 5.6 |
+# Python
+python samples/bench/bench_python.py <file.c3d> --lib sqzc3d --repeat <repeat>
+python samples/bench/bench_python.py <file.c3d> --lib ezc3d  --repeat <repeat>
+```
 
-`load_speedup_x = ezc3d / sqzc3d`, `rss_ratio_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`).
+Notes:
+- `bench_sqzc3d` and the Python `sqzc3d` bench disable analog reads to focus on point materialize + access patterns.
+- `ezc3d` materializes full in-memory structures (including analogs if present).
 
-### Access patterns (native, after load; PFERD, `T=256`)
+### Benchmarks (materialize mode)
 
-All numbers are **per-operation milliseconds** unless noted.
+Definition: `speedup_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`, including the memory ratio).
+
+#### C++ (native)
+
+PFERD (117.96 MB, frames=55,844, points=132, repeat=1):
 
 | Metric | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |
-| `frame_view_ns_kall` (ns/op) | 4.196 | 76.054 | 18.1x |
-| `frame_copy_ms_kall` | 0.000096 | 0.002589 | 27.0x |
-| `window_read_ms_T256_kall` | 0.009656 | 0.143652 | 14.9x |
-| `traj_strided_ms_T256_kall` | 0.075748 | 0.228896 | 3.0x |
-| `traj_strided_ms_Tfull_k1` | 0.132440 | 3.362906 | 25.4x |
-| `reorder_ms_T256_kall` | 0.132432 | 0.167740 | 1.27x |
-| `sel_apply_ms_T256_k32` | 0.005532 | 0.046642 | 8.4x |
+| `load_ms` | 218.023 | 2481.406 | 11.4x |
+| `frame_copy_us_kall` | 0.100 | 2.204 | 22.0x |
+| `window_copy_us_T256_kall` | 10.375 | 154.118 | 14.9x |
+| `peak_rss_mb` | 182.398 | 1011.125 | 5.5x |
 
-`speedup_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`).
+Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=10):
+
+| Metric | sqzc3d | ezc3d | `speedup_x` |
+| --- | ---: | ---: | ---: |
+| `load_ms` | 10.979 | 98.711 | 9.0x |
+| `frame_copy_us_kall` | 0.013 | 0.743 | 57.2x |
+| `window_copy_us_T256_kall` | 2.544 | 54.254 | 21.3x |
+| `peak_rss_mb` | 12.031 | 42.070 | 3.5x |
+
+#### Python
+
+PFERD (117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.0 (ABI 3), `ezc3d` v1.6.0):
+
+| Metric | sqzc3d | ezc3d | `speedup_x` |
+| --- | ---: | ---: | ---: |
+| `load_ms` | 197.913 | 2924.975 | 14.8x |
+| `frame_copy_us_kall` | 1.234 | 4.594 | 3.7x |
+| `window_copy_us_T256_kall` | 13.070 | 159.610 | 12.2x |
+| `peak_rss_mb` | 209.617 | 1373.492 | 6.6x |
+
+Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.0 (ABI 3), `ezc3d` v1.6.0):
+
+| Metric | sqzc3d | ezc3d | `speedup_x` |
+| --- | ---: | ---: | ---: |
+| `load_ms` | 8.975 | 116.915 | 13.0x |
+| `frame_copy_us_kall` | 0.809 | 1.504 | 1.9x |
+| `window_copy_us_T256_kall` | 3.983 | 42.041 | 10.6x |
+| `peak_rss_mb` | 44.789 | 130.855 | 2.9x |
 
 ### Streaming mode (sqzc3d-only, low memory)
 
