@@ -5,6 +5,7 @@
 #include <pybind11/stl.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -102,7 +103,8 @@ ParsedSelector ParseSelectorArg(const py::handle& obj, const char* field_name) {
   if (py::isinstance<py::sequence>(obj)) {
     auto seq = obj.cast<py::sequence>();
     if (seq.size() == 0) {
-      out.kind = SelectorKind::kAll;
+      // Python: [] means empty selection. None means ALL.
+      out.kind = SelectorKind::kIndices;
       return out;
     }
     out.kind = SelectorKind::kIndices;
@@ -260,33 +262,31 @@ struct PyDecoder {
       for (auto& s : analog_label_storage) analog_label_ptrs.push_back(s.c_str());
     }
 
-    if (p_sel.kind == SelectorKind::kAll || (p_sel.kind == SelectorKind::kIndices && point_idx.empty()) ||
-        (p_sel.kind == SelectorKind::kLabels && point_label_ptrs.empty())) {
+    if (p_sel.kind == SelectorKind::kAll) {
       opt.point_sel_mode = sqzc3d_POINT_SEL_ALL;
       opt.point_sel = nullptr;
       opt.point_sel_count = 0;
     } else if (p_sel.kind == SelectorKind::kIndices) {
       opt.point_sel_mode = sqzc3d_POINT_SEL_INDICES;
-      opt.point_sel = point_idx.data();
+      opt.point_sel = point_idx.empty() ? nullptr : point_idx.data();
       opt.point_sel_count = static_cast<int>(point_idx.size());
     } else {
       opt.point_sel_mode = sqzc3d_POINT_SEL_LABELS;
-      opt.point_labels = point_label_ptrs.data();
+      opt.point_labels = point_label_ptrs.empty() ? nullptr : point_label_ptrs.data();
       opt.point_labels_count = static_cast<int>(point_label_ptrs.size());
     }
 
-    if (a_sel.kind == SelectorKind::kAll || (a_sel.kind == SelectorKind::kIndices && analog_idx.empty()) ||
-        (a_sel.kind == SelectorKind::kLabels && analog_label_ptrs.empty())) {
+    if (a_sel.kind == SelectorKind::kAll) {
       opt.analog_sel_mode = sqzc3d_ANALOG_SEL_ALL;
       opt.analog_sel = nullptr;
       opt.analog_sel_count = 0;
     } else if (a_sel.kind == SelectorKind::kIndices) {
       opt.analog_sel_mode = sqzc3d_ANALOG_SEL_INDICES;
-      opt.analog_sel = analog_idx.data();
+      opt.analog_sel = analog_idx.empty() ? nullptr : analog_idx.data();
       opt.analog_sel_count = static_cast<int>(analog_idx.size());
     } else {
       opt.analog_sel_mode = sqzc3d_ANALOG_SEL_LABELS;
-      opt.analog_labels = analog_label_ptrs.data();
+      opt.analog_labels = analog_label_ptrs.empty() ? nullptr : analog_label_ptrs.data();
       opt.analog_labels_count = static_cast<int>(analog_label_ptrs.size());
     }
 
@@ -302,6 +302,60 @@ struct PyDecoder {
 
 struct PyChunk {
   explicit PyChunk(std::shared_ptr<ChunkHolder> holder) : holder_(std::move(holder)) {}
+
+  py::list _point_indices_for_labels(py::object labels_obj) const {
+    const auto* chunk = holder_->chunk;
+    if (!chunk) throw std::runtime_error("chunk is not available");
+    std::vector<std::string> labels;
+    if (labels_obj.is_none()) {
+      throw py::type_error("labels expects str or sequence[str]");
+    }
+    if (py::isinstance<py::str>(labels_obj)) {
+      labels.push_back(py::cast<std::string>(labels_obj));
+    } else if (py::isinstance<py::sequence>(labels_obj)) {
+      auto seq = labels_obj.cast<py::sequence>();
+      labels.reserve(static_cast<std::size_t>(seq.size()));
+      for (const auto item : seq) {
+        if (!py::isinstance<py::str>(item)) {
+          throw py::type_error("labels expects sequence[str]");
+        }
+        labels.push_back(py::cast<std::string>(item));
+      }
+    } else {
+      throw py::type_error("labels expects str or sequence[str]");
+    }
+    const auto idx = ResolvePointLabelIndices(chunk, labels);
+    py::list out;
+    for (const auto v : idx) out.append(v);
+    return out;
+  }
+
+  py::list _analog_indices_for_labels(py::object labels_obj) const {
+    const auto* chunk = holder_->chunk;
+    if (!chunk) throw std::runtime_error("chunk is not available");
+    std::vector<std::string> labels;
+    if (labels_obj.is_none()) {
+      throw py::type_error("labels expects str or sequence[str]");
+    }
+    if (py::isinstance<py::str>(labels_obj)) {
+      labels.push_back(py::cast<std::string>(labels_obj));
+    } else if (py::isinstance<py::sequence>(labels_obj)) {
+      auto seq = labels_obj.cast<py::sequence>();
+      labels.reserve(static_cast<std::size_t>(seq.size()));
+      for (const auto item : seq) {
+        if (!py::isinstance<py::str>(item)) {
+          throw py::type_error("labels expects sequence[str]");
+        }
+        labels.push_back(py::cast<std::string>(item));
+      }
+    } else {
+      throw py::type_error("labels expects str or sequence[str]");
+    }
+    const auto idx = ResolveAnalogLabelIndices(chunk, labels);
+    py::list out;
+    for (const auto v : idx) out.append(v);
+    return out;
+  }
 
   py::tuple points(py::object selector, bool copy) const {
     const auto* chunk = holder_->chunk;
@@ -323,7 +377,7 @@ struct PyChunk {
     }
 
     sqzc3d_points_view_t view{};
-    if (parsed.kind == SelectorKind::kAll || point_indices.empty()) {
+    if (parsed.kind == SelectorKind::kAll) {
       view.points_xyz = chunk->points_xyz;
       view.points_valid = chunk->points_valid;
       view.n_frames = chunk->n_frames;
@@ -332,8 +386,16 @@ struct PyChunk {
       view.source_point_offset = 0;
       view.point_indices = nullptr;
     } else {
-      CheckStatus(sqzc3d_points_view_points(chunk, point_indices.data(), static_cast<int>(point_indices.size()), &view),
+      const int* ptr = point_indices.empty() ? nullptr : point_indices.data();
+      CheckStatus(sqzc3d_points_view_points(chunk, ptr, static_cast<int>(point_indices.size()), &view),
                   "sqzc3d_points_view_points");
+    }
+    if (view.n_points == 0) {
+      std::vector<py::ssize_t> vshape = {view.n_frames, 0, 3};
+      std::vector<py::ssize_t> vshape_valid = {view.n_frames, 0};
+      auto values = py::array_t<sqzc3d_num_t>(vshape);
+      auto valid = py::array_t<unsigned char>(vshape_valid);
+      return py::make_tuple(values, valid);
     }
     if (!view.points_xyz) {
       throw std::runtime_error("points data is not available");
@@ -425,14 +487,30 @@ struct PyChunk {
     }
 
     sqzc3d_analogs_view_t view{};
-    if (parsed.kind == SelectorKind::kAll || analog_indices.empty()) {
+    if (parsed.kind == SelectorKind::kAll) {
       CheckStatus(sqzc3d_analogs_view_samples(chunk, 0, chunk->n_frames, &view), "sqzc3d_analogs_view_samples");
     } else {
+      const int* ptr = analog_indices.empty() ? nullptr : analog_indices.data();
       CheckStatus(sqzc3d_analogs_view_channels(
-                      chunk, analog_indices.data(), static_cast<int>(analog_indices.size()), &view),
+                      chunk, ptr, static_cast<int>(analog_indices.size()), &view),
                   "sqzc3d_analogs_view_channels");
     }
-    if (!view.analog && chunk->n_analogs > 0) {
+    if (view.n_analogs == 0) {
+      const bool tcs = (layout == "tcs" || layout == "TCS");
+      const py::ssize_t t = static_cast<py::ssize_t>(view.n_frames);
+      const py::ssize_t s = static_cast<py::ssize_t>(view.n_analog_by_frame);
+      if (tcs) {
+        std::vector<py::ssize_t> vshape = {t, 0, s};
+        auto values = py::array_t<sqzc3d_num_t>(vshape);
+        auto valid = py::array_t<unsigned char>(vshape);
+        return py::make_tuple(values, valid);
+      }
+      std::vector<py::ssize_t> vshape = {0, static_cast<py::ssize_t>(view.n_samples)};
+      auto values = py::array_t<sqzc3d_num_t>(vshape);
+      auto valid = py::array_t<unsigned char>(vshape);
+      return py::make_tuple(values, valid);
+    }
+    if (!view.analog) {
       throw std::runtime_error("analog data is not available");
     }
 
@@ -548,11 +626,12 @@ struct PyChunk {
     py::dict out;
     const auto* chunk = holder_->chunk;
     if (!chunk) return out;
+    out["source_path"] = holder_->source_path;
     out["n_frames"] = chunk->n_frames;
     out["n_points"] = chunk->n_points;
     out["n_points_total"] = chunk->n_points_total;
     out["n_analogs"] = chunk->n_analogs;
-    out["n_analog_by_frame"] = (chunk->n_analogs > 0) ? chunk->n_analog_by_frame : 0;
+    out["n_analog_by_frame"] = chunk->n_analog_by_frame;
     out["n_scalar"] = chunk->n_scalar;
     out["valid_nscalar"] = chunk->valid_nscalar;
     out["n_analog_scalar"] = chunk->n_analog_scalar;
@@ -694,6 +773,13 @@ py::dict PyChunk::meta_tree() const {
     return out;
   }
 #if sqzc3d_WITH_EZC3D
+  const std::string ext = std::filesystem::path(holder_->source_path).extension().string();
+  std::string ext_lower;
+  ext_lower.reserve(ext.size());
+  for (unsigned char ch : ext) ext_lower.push_back(static_cast<char>(std::tolower(ch)));
+  if (ext_lower != ".c3d") {
+    return out;
+  }
   const auto point_frames_override = static_cast<std::int64_t>(sqzc3d_chunk_num_frames(holder_->chunk));
   return ParseMetaTreeFromSource(holder_->source_path, point_frames_override);
 #else
@@ -730,7 +816,7 @@ PYBIND11_MODULE(_core, m) {
         CheckStatus(
             sqzc3d_load_bundle_with_options(path.c_str(), &opt, &chunk),
             "sqzc3d_load_bundle_with_options");
-        return std::make_shared<PyChunk>(std::make_shared<ChunkHolder>(chunk));
+        return std::make_shared<PyChunk>(std::make_shared<ChunkHolder>(chunk, path));
       },
       py::arg("path"),
       py::arg("strict") = true);
@@ -752,6 +838,8 @@ PYBIND11_MODULE(_core, m) {
       .def_property_readonly("closed", &PyDecoder::is_closed);
 
   py::class_<PyChunk, std::shared_ptr<PyChunk>>(m, "Chunk")
+      .def("_point_indices_for_labels", &PyChunk::_point_indices_for_labels, py::arg("labels"))
+      .def("_analog_indices_for_labels", &PyChunk::_analog_indices_for_labels, py::arg("labels"))
       .def("points", &PyChunk::points, py::arg("selector") = py::none(), py::arg("copy") = true)
       .def("analogs", &PyChunk::analogs, py::arg("selector") = py::none(), py::arg("layout") = "CN",
            py::arg("copy") = true)

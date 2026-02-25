@@ -781,7 +781,7 @@ static bool read_section_data(
   return true;
 }
 
-static void set_error(
+[[maybe_unused]] static void set_error(
     sqzc3d_dec_t* dec,
     int status,
     const std::string& message,
@@ -858,18 +858,22 @@ static int build_point_selection(
     std::vector<int>& out_indices,
     int label_norm) {
   out_indices.clear();
-  if (opt->point_sel_mode == sqzc3d_POINT_SEL_ALL || opt->point_sel_count == 0) {
+  if (opt->point_sel_mode == sqzc3d_POINT_SEL_ALL) {
     out_indices.resize(static_cast<std::size_t>(n_points_total));
     for (int i = 0; i < n_points_total; ++i) out_indices[static_cast<std::size_t>(i)] = i;
     return sqzc3d_STATUS_SUCCESS;
   }
   if (opt->point_sel_mode == sqzc3d_POINT_SEL_INDICES) {
-    if (!opt->point_sel || opt->point_sel_count <= 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (opt->point_sel_count < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (opt->point_sel_count == 0) return sqzc3d_STATUS_SUCCESS;
+    if (!opt->point_sel) return sqzc3d_STATUS_INVALID_ARGUMENT;
     out_indices.assign(opt->point_sel, opt->point_sel + opt->point_sel_count);
   } else if (opt->point_sel_mode == sqzc3d_POINT_SEL_LABELS) {
     const int label_count =
         opt->point_labels_count > 0 ? opt->point_labels_count : opt->point_sel_count;
-    if (label_count <= 0 || !opt->point_labels) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (label_count < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (label_count == 0) return sqzc3d_STATUS_SUCCESS;
+    if (!opt->point_labels) return sqzc3d_STATUS_INVALID_ARGUMENT;
     return map_labels_to_indices(
         source_point_labels, opt->point_labels, label_count, out_indices, -1, label_norm);
   } else {
@@ -890,13 +894,15 @@ static int build_analog_selection(
   out_indices.clear();
   if (n_analogs_total <= 0 || opt->analog_enable == sqzc3d_ANALOG_EN_OFF) return sqzc3d_STATUS_SUCCESS;
 
-  if (opt->analog_sel_mode == sqzc3d_ANALOG_SEL_ALL || opt->analog_sel_count == 0) {
+  if (opt->analog_sel_mode == sqzc3d_ANALOG_SEL_ALL) {
     out_indices.resize(static_cast<std::size_t>(n_analogs_total));
     for (int i = 0; i < n_analogs_total; ++i) out_indices[static_cast<std::size_t>(i)] = i;
     return sqzc3d_STATUS_SUCCESS;
   }
   if (opt->analog_sel_mode == sqzc3d_ANALOG_SEL_INDICES) {
-    if (!opt->analog_sel || opt->analog_sel_count <= 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (opt->analog_sel_count < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (opt->analog_sel_count == 0) return sqzc3d_STATUS_SUCCESS;
+    if (!opt->analog_sel) return sqzc3d_STATUS_INVALID_ARGUMENT;
     out_indices.assign(opt->analog_sel, opt->analog_sel + opt->analog_sel_count);
     for (const int idx : out_indices) {
       if (idx < 0 || idx >= n_analogs_total) return sqzc3d_STATUS_INVALID_ARGUMENT;
@@ -906,7 +912,9 @@ static int build_analog_selection(
   if (opt->analog_sel_mode == sqzc3d_ANALOG_SEL_LABELS) {
     const int label_count =
         opt->analog_labels_count > 0 ? opt->analog_labels_count : opt->analog_sel_count;
-    if (label_count <= 0 || !opt->analog_labels) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (label_count < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (label_count == 0) return sqzc3d_STATUS_SUCCESS;
+    if (!opt->analog_labels) return sqzc3d_STATUS_INVALID_ARGUMENT;
     return map_labels_to_indices(
         source_analog_labels, opt->analog_labels, label_count, out_indices, -1, label_norm);
   }
