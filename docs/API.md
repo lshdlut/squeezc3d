@@ -1,4 +1,4 @@
-# Squeezed C3D (`sqzc3d`) API Reference
+# squeezc3d API Reference (`sqzc3d`)
 
 Applies to `sqzc3d` v0.3.x (ABI `SQZC3D_ABI_VERSION=3`).
 
