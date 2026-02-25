@@ -115,7 +115,8 @@ def _time_ms_adaptive(
         checksum = 0.0
         t0 = time.perf_counter()
         for i in range(iters):
-            checksum += float(fn(i))
+            x = float(fn(i))
+            checksum += x if x == x else 0.0
         t1 = time.perf_counter()
         total_ms = _elapsed_ms(t0, t1)
         if total_ms >= target_total_ms or iters >= max_iters:

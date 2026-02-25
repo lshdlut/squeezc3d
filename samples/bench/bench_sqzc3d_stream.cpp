@@ -208,7 +208,8 @@ static int run_bench(const std::string& input, int repeat) {
       std::vector<double> one(static_cast<std::size_t>(metrics.n_points) * 3u, 0.0);
       (void)sqzc3d::sqzc3d_c3d_stream_read_frame_all_xyz(
           &reader, 0, one.data(), static_cast<int>(one.size()));
-      checksum += one[0];
+      const double x = one[0];
+      checksum += (x == x) ? x : 0.0;
     }
     sqzc3d::sqzc3d_c3d_stream_close(&reader);
     mem1 = snapshot_memory();
