@@ -20,6 +20,7 @@
 
 getting_started_python
 getting_started_c
+build
 ```
 
 ```{toctree}
@@ -35,6 +36,13 @@ user_guide_type_groups
 user_guide_units
 user_guide_bundles
 user_guide_errors
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: 基准测试
+
+benchmarks
 ```
 
 ```{toctree}
