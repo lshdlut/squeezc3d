@@ -7,6 +7,8 @@ out/
 dist/
 local_tools/
 temp_pkg/
+docs/_build/
+docs/zh/_build/
 
 # Root-level scratch scripts / logs (keep samples/tmp_*.py trackable)
 /tmp_*.py
