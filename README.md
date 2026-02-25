@@ -12,6 +12,8 @@ predictable array semantics.
 - Optional modes: streaming reads and `.sqzc3d` bundles for cached/low-memory workflows.
 
 Links:
+- Documentation (English, hosted): https://squeezc3d.readthedocs.io/en/latest/
+- Documentation (简体中文, hosted): https://squeezc3d.readthedocs.io/zh-cn/latest/
 - Documentation (English): `docs/en/index.md`
 - Documentation (简体中文): `docs/zh/index.md`
 - Benchmarks: `docs/en/benchmarks.md`

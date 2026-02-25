@@ -11,6 +11,8 @@
 - 可选能力：streaming 读取与 `.sqzc3d` bundle，用于缓存/低内存等场景。
 
 链接：
+- 在线文档（English）：https://squeezc3d.readthedocs.io/en/latest/
+- 在线文档（简体中文）：https://squeezc3d.readthedocs.io/zh-cn/latest/
 - 文档（English）：`docs/en/index.md`
 - 文档（简体中文）：`docs/zh/index.md`
 - 基准测试：`docs/zh/benchmarks.md`
