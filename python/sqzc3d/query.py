@@ -210,6 +210,16 @@ class ChunkQuery:
     def indices(self) -> list[int]:
         return mask_to_indices(self.mask())
 
+    def describe(self) -> str:
+        idx = self.indices()
+        return (
+            "sqzc3d.ChunkQuery\n"
+            f"- n_points: {self._n_points}\n"
+            f"- selected: {len(idx)}\n"
+            f"- sel_mask: {'set' if self._sel_mask is not None else 'unset'}\n"
+            f"- type_mask: {'set' if self._type_mask is not None else 'unset'}\n"
+        )
+
     def points(self, *, copy: bool = True):
         m = self.mask()
         if self._n_points == 0:
@@ -242,3 +252,10 @@ class ChunkRecipe:
             )
         return q
 
+    def describe(self) -> str:
+        return (
+            "sqzc3d.ChunkRecipe\n"
+            f"- type_groups: {list(self.type_groups)!r}\n"
+            f"- type_groups_strict: {bool(self.type_groups_strict)}\n"
+            f"- type_groups_missing_meta: {self.type_groups_missing_meta!r}\n"
+        )

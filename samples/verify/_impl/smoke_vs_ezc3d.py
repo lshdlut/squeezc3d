@@ -20,6 +20,91 @@ _REL_TOL = 1e-8
 _MAX_TREE_DIFF = 200
 
 
+def _shape_str(a) -> str:
+    try:
+        return str(tuple(np.asarray(a).shape))
+    except Exception:
+        return "<unknown>"
+
+
+def _check_empty_points_and_analogs(chunk, *, where: str) -> List[str]:
+    issues: List[str] = []
+
+    try:
+        pts, pts_valid = chunk.points()
+        pts = np.asarray(pts)
+        pts_valid = np.asarray(pts_valid)
+        if not (pts.ndim == 3 and pts.shape[1] == 0 and pts.shape[2] == 3):
+            issues.append(f"{where}: chunk.points() expected (T, 0, 3), got {pts.shape}")
+        if not (pts_valid.ndim == 2 and pts_valid.shape[1] == 0):
+            issues.append(f"{where}: points_valid expected (T, 0), got {pts_valid.shape}")
+    except Exception as exc:
+        issues.append(f"{where}: chunk.points() raised: {type(exc).__name__}: {exc}")
+
+    try:
+        ana, ana_valid = chunk.analogs()
+        ana = np.asarray(ana)
+        ana_valid = np.asarray(ana_valid)
+        if not (ana.ndim == 2 and ana.shape[0] == 0):
+            issues.append(f"{where}: chunk.analogs() expected (0, N), got {ana.shape}")
+        if not (ana_valid.ndim == 2 and ana_valid.shape[0] == 0):
+            issues.append(f"{where}: analog_valid expected (0, N), got {ana_valid.shape}")
+    except Exception as exc:
+        issues.append(f"{where}: chunk.analogs() raised: {type(exc).__name__}: {exc}")
+
+    return issues
+
+
+def _check_python_selector_semantics(sqzc3d, file_path: Path, dec, expected_meta: dict) -> List[str]:
+    issues: List[str] = []
+    exp_points = int(expected_meta.get("n_points", 0) or 0)
+    exp_analogs = int(expected_meta.get("n_analogs", 0) or 0)
+
+    # None = ALL (should match the default full read counts).
+    try:
+        c_all = dec.read(frame_count=1, points=None, analogs=None, analog_range=None)
+        meta_all = c_all.meta
+        if exp_points > 0 and int(meta_all.get("n_points", -1)) != exp_points:
+            issues.append(f"selector(None): n_points mismatch: got={meta_all.get('n_points')} expected={exp_points}")
+        if exp_analogs >= 0 and int(meta_all.get("n_analogs", -1)) != exp_analogs:
+            issues.append(f"selector(None): n_analogs mismatch: got={meta_all.get('n_analogs')} expected={exp_analogs}")
+    except Exception as exc:
+        issues.append(f"selector(None): Decoder.read failed: {type(exc).__name__}: {exc}")
+
+    # [] = empty
+    try:
+        c_empty = dec.read(frame_count=1, points=[], analogs=[], analog_range=None)
+        meta_empty = c_empty.meta
+        if int(meta_empty.get("n_points", -1)) != 0:
+            issues.append(f"selector([]): expected n_points=0, got {meta_empty.get('n_points')}")
+        if int(meta_empty.get("n_analogs", -1)) != 0:
+            issues.append(f"selector([]): expected n_analogs=0, got {meta_empty.get('n_analogs')}")
+        issues.extend(_check_empty_points_and_analogs(c_empty, where="selector([])"))
+    except Exception as exc:
+        issues.append(f"selector([]): Decoder.read failed: {type(exc).__name__}: {exc}")
+
+    # Easy layer smoke (should be available on the sqzc3d Python package).
+    try:
+        if not hasattr(sqzc3d, "read"):
+            issues.append("easy: sqzc3d.read is missing")
+        else:
+            v = sqzc3d.read(str(file_path), frame_count=1)
+            pts = np.asarray(v.points)
+            if not (pts.ndim == 3 and pts.shape[2] == 3):
+                issues.append(f"easy: view.points shape unexpected: {_shape_str(pts)}")
+            v0 = sqzc3d.read(str(file_path), frame_count=1, points=[], analogs=[])
+            pts0 = np.asarray(v0.points)
+            ana0 = np.asarray(v0.analogs)
+            if not (pts0.ndim == 3 and pts0.shape[1] == 0):
+                issues.append(f"easy: points=[] expected (T, 0, 3), got {_shape_str(pts0)}")
+            if not (ana0.ndim == 2 and ana0.shape[0] == 0):
+                issues.append(f"easy: analogs=[] expected (0, N), got {_shape_str(ana0)}")
+    except Exception as exc:
+        issues.append(f"easy: read failed: {type(exc).__name__}: {exc}")
+
+    return issues
+
+
 def _find_repo_root() -> Path:
     candidate = Path(__file__).resolve().parent
     while candidate.parent != candidate:
@@ -614,8 +699,10 @@ def _load_ezc3d_reference(file_path: Path):
 def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     sqzc3d = _ensure_sqzc3d_import()
     dec = sqzc3d.Decoder(str(file_path))
+    pre_issues: List[str] = []
     try:
         sq_chunk = dec.read(frame_count=-1, points=None, analogs=None, analog_range=None)
+        pre_issues.extend(_check_python_selector_semantics(sqzc3d, file_path, dec, sq_chunk.meta))
     finally:
         try:
             dec.close()
@@ -635,6 +722,7 @@ def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     ez_meta_ref = _build_reference_meta(ez, ez_points, ez_point_valid, ez_analog)
 
     issues: List[str] = []
+    issues.extend(pre_issues)
     issues.extend(_compare_points(sq_chunk, (ez_points, ez_point_valid, ez_analog, ez_analog_valid, ez_analog_by_frame)))
     issues.extend(_compare_analogs(sq_chunk, (ez_points, ez_point_valid, ez_analog, ez_analog_valid, ez_analog_by_frame)))
 

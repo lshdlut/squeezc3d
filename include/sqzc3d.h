@@ -32,8 +32,8 @@ extern "C" {
 // Public semantic version and ABI version.
 #define SQZC3D_VERSION_MAJOR 0
 #define SQZC3D_VERSION_MINOR 3
-#define SQZC3D_VERSION_PATCH 3
-#define SQZC3D_VERSION "0.3.3"
+#define SQZC3D_VERSION_PATCH 4
+#define SQZC3D_VERSION "0.3.4"
 #define SQZC3D_ABI_VERSION 3
 
 typedef struct sqzc3d_range_t_ {

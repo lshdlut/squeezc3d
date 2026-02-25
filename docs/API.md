@@ -148,11 +148,47 @@ High-level Python exports:
 - `sqzc3d.version()`
 - `sqzc3d.abi_version()`
 - `sqzc3d.features()`
+- `sqzc3d.read(...) -> sqzc3d.View` (easy layer)
+- `sqzc3d.View` (easy layer)
+- `sqzc3d.Recipe` (alias of `sqzc3d.ChunkRecipe`)
 - `sqzc3d.Decoder`
 - `sqzc3d.Chunk`
 - `sqzc3d.ChunkQuery` / `sqzc3d.ChunkRecipe` (AND-only chunk-local filtering)
 - `sqzc3d.type_group_indices(chunk, group_names, strict=False)`
 - `sqzc3d.load_bundle(path: str, strict: bool = True)`
+
+### Easy layer (recommended)
+
+`read`:
+
+- `sqzc3d.read(source, *, start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, label_norm=..., recipe=None) -> View`
+
+Selector semantics (Python):
+
+- `None` = default (ALL)
+- `[]` = empty selection
+
+`View`:
+
+- Selection state (labels-first):
+  - `view.point_labels` (`None | list[str]`)
+  - `view.analog_labels` (`None | list[str]`)
+  - `view.type_groups` (`list[str]`)
+- Data (properties):
+  - `view.points` / `view.points_valid`
+  - `view.analogs` / `view.analogs_valid`
+- Label accessors:
+  - `view.point["LANK"]` / `view.point_valid["LANK"]`
+  - `view.analog["EMG1"]` / `view.analog_valid["EMG1"]`
+- Metadata:
+  - `view.meta` (flat dict)
+  - `view.meta_tree` (EZ parameter tree; only when source is a `.c3d` file path and `SQZC3D_WITH_EZC3D=ON`)
+- Advanced escape hatch:
+  - `view._chunk` (pybind `Chunk`; indices/masks/etc are considered advanced)
+
+Notes:
+
+- The easy layer is **labels-only** by design. If you already have indices, use the core API and slice arrays directly.
 
 `Decoder`:
 
@@ -179,6 +215,7 @@ Python payload semantics:
   - `layout="tcs"`: `(T, C, S)` non-contiguous view helper
 - selector:
   - `None` means all
+  - `[]` means empty
   - `int` or list/tuple of ints for index selection
   - `str` or list/tuple of str for label selection
 - non-contiguous selection requires `copy=True`; `copy=False` currently raises `RuntimeError` and avoids hidden conversions.

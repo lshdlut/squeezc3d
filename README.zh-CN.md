@@ -32,8 +32,8 @@
 
 ```bash
 # C++
-local_tools/build/Release/bench_sqzc3d.exe <file.c3d> <repeat>
-local_tools/build/Release/bench_ezc3d.exe  <file.c3d> <repeat>
+<build_dir>/Release/bench_sqzc3d.exe <file.c3d> <repeat>
+<build_dir>/Release/bench_ezc3d.exe  <file.c3d> <repeat>
 
 # Python
 python samples/bench/bench_python.py <file.c3d> --lib sqzc3d --repeat <repeat>
@@ -124,8 +124,8 @@ PFERD（117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3),
 ## 构建
 
 ```bash
-cmake -S . -B local_tools/build
-cmake --build local_tools/build --config Release --parallel
+cmake -S . -B <build_dir>
+cmake --build <build_dir> --config Release --parallel
 ```
 
 ### 常用选项
@@ -311,32 +311,67 @@ sqzc3d_get_features();
 
 ## Python
 
-`sqzc3d` 提供一个基于 `pybind11` 的轻量 Python API。
-该包提供 `Decoder` + `Chunk` API，面向终端/分析类工作流。
+`sqzc3d` 提供两层 Python 接口：
+
+- **Easy（推荐）**：`read(...) -> View`（labels 优先、有状态、以属性访问为主）。
+- **Core（高级）**：`Decoder` + `Chunk`（对 chunk 模型的薄 pybind11 绑定）。
 
 ### 安装
 
 `pip install sqzc3d`
 
-### 最小用法
+### 推荐用法（easy）
+
+```python
+import sqzc3d as sq
+
+v = sq.read("trial.c3d")  # 默认：points=ALL, analogs=ALL
+print(v.meta["n_frames"], v.meta["n_points"], v.meta["n_analogs"])
+
+pts = v.points                 # (T, P, 3)
+pts_valid = v.points_valid     # (T, P) uint8
+
+# 基于 label 的单个 marker/channel 访问
+ank = v.point["LANK"]              # (T, 3)
+ank_valid = v.point_valid["LANK"]  # (T,)
+
+# 按 labels 过滤（easy 层只支持 labels）
+v.point_labels = ["LASI", "RASI"]
+pts2 = v.points  # (T, 2, 3)
+
+# Analog 值（默认布局：channel-major (C, N)）
+emg1 = v.analog["EMG1"]             # (N,)
+emg1_valid = v.analog_valid["EMG1"] # (N,)
+
+# 禁用 analog 读取（空选择）
+v_no_analog = sq.read("trial.c3d", analogs=[])
+print(v_no_analog.meta["n_analogs"])  # 0
+```
+
+Selector 语义（Python）：
+
+- `None` = 默认（ALL）
+- `[]` = 空集合
+
+### 高级用法（core pybind11 API）
 
 ```python
 import sqzc3d
 
 dec = sqzc3d.Decoder("trial.c3d", label_norm=sqzc3d.SQZC3D_LABEL_NORM_TRIM)
-chunk = dec.read(
-    start_frame=0,
-    frame_count=-1,
-    points=[0, 2],      # marker index mode
-    analogs=["EMG1", "EMG2"]  # label mode is supported too
-)
+chunk = dec.read(start_frame=0, frame_count=-1, points=None, analogs=None)
 
-pts, pts_valid = chunk.points()  # default: copy=True, returns (values, valid)
-ana, ana_valid = chunk.analogs(layout="CN")  # default analog layout is channel-major (C, N)
-ana_tm, ana_tm_valid = chunk.analogs(selector=[0, 1], layout="tcs")  # frame-major view helper
+pts, pts_valid = chunk.points()               # (T, P, 3), (T, P)
+ana, ana_valid = chunk.analogs(layout="CN")   # (C, N), (C, N)
+ana_tcs, ana_tcs_valid = chunk.analogs(layout="tcs")  # (T, C, S), (T, C, S)
 
 print(chunk.meta["n_frames"], len(chunk.meta["point_labels"]))
 ```
+
+说明：
+
+- 对于非连续选择，需要 `copy=True`（API 不会隐式做 gather/copy）。
+- `Chunk.meta_tree` 仅在 chunk 绑定了 `.c3d` 源路径时可用（且需要 `SQZC3D_WITH_EZC3D=ON`）。
 
 ### 构建说明
 
@@ -353,4 +388,3 @@ print(chunk.meta["n_frames"], len(chunk.meta["point_labels"]))
 ## 许可证与第三方声明
 
 依赖/许可证说明见 `LICENSE` 与 `NOTICE`，构建依赖见 `DEPENDENCIES.md`。
-

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 _core_import_error = None
 try:
@@ -20,6 +20,8 @@ if _core is not None:
     Chunk = _core.Chunk
     load_bundle = _core.load_bundle
 
+    from .easy import View, read  # noqa: E402
+
     from .query import (  # noqa: E402
         ChunkQuery,
         ChunkRecipe,
@@ -30,6 +32,7 @@ if _core is not None:
         mask_andnot_indices,
         type_group_indices,
     )
+    Recipe = ChunkRecipe
     SQZC3D_VERSION = _core.SQZC3D_VERSION
     SQZC3D_VERSION_MAJOR = _core.SQZC3D_VERSION_MAJOR
     SQZC3D_VERSION_MINOR = _core.SQZC3D_VERSION_MINOR
@@ -48,7 +51,10 @@ if _core is not None:
         "Chunk",
         "ChunkQuery",
         "ChunkRecipe",
+        "Recipe",
+        "View",
         "load_bundle",
+        "read",
         "version",
         "abi_version",
         "features",

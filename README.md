@@ -32,8 +32,8 @@ Repro commands:
 
 ```bash
 # C++
-local_tools/build/Release/bench_sqzc3d.exe <file.c3d> <repeat>
-local_tools/build/Release/bench_ezc3d.exe  <file.c3d> <repeat>
+<build_dir>/Release/bench_sqzc3d.exe <file.c3d> <repeat>
+<build_dir>/Release/bench_ezc3d.exe  <file.c3d> <repeat>
 
 # Python
 python samples/bench/bench_python.py <file.c3d> --lib sqzc3d --repeat <repeat>
@@ -124,8 +124,8 @@ Example (PFERD, repeat=1):
 ## Build
 
 ```bash
-cmake -S . -B local_tools/build
-cmake --build local_tools/build --config Release --parallel
+cmake -S . -B <build_dir>
+cmake --build <build_dir> --config Release --parallel
 ```
 
 ### Common options
@@ -311,32 +311,67 @@ Use this to adapt behavior for `ON/OFF` builds at runtime.
 
 ## Python
 
-`sqzc3d` provides a lightweight Python API built on top of `pybind11`.
-The package ships a `Decoder` + `Chunk` API intended for terminal/analysis workflows.
+`sqzc3d` provides two Python layers:
+
+- **Easy (recommended)**: `read(...) -> View` (labels-first, stateful, property-first access).
+- **Core (advanced)**: `Decoder` + `Chunk` (thin pybind11 bindings over the chunk model).
 
 ### Install
 
 `pip install sqzc3d`
 
-### Minimal usage
+### Recommended usage (easy)
+
+```python
+import sqzc3d as sq
+
+v = sq.read("trial.c3d")  # default: points=ALL, analogs=ALL
+print(v.meta["n_frames"], v.meta["n_points"], v.meta["n_analogs"])
+
+pts = v.points                 # (T, P, 3)
+pts_valid = v.points_valid     # (T, P) uint8
+
+# Label-based accessors (single marker/channel)
+ank = v.point["LANK"]          # (T, 3)
+ank_valid = v.point_valid["LANK"]  # (T,)
+
+# Filter by labels (easy layer is labels-only)
+v.point_labels = ["LASI", "RASI"]
+pts2 = v.points  # (T, 2, 3)
+
+# Analog values (default layout: channel-major (C, N))
+emg1 = v.analog["EMG1"]             # (N,)
+emg1_valid = v.analog_valid["EMG1"] # (N,)
+
+# Disable analog reads (empty selection)
+v_no_analog = sq.read("trial.c3d", analogs=[])
+print(v_no_analog.meta["n_analogs"])  # 0
+```
+
+Selector semantics (Python):
+
+- `None` = default (ALL)
+- `[]` = empty selection
+
+### Advanced usage (core pybind11 API)
 
 ```python
 import sqzc3d
 
 dec = sqzc3d.Decoder("trial.c3d", label_norm=sqzc3d.SQZC3D_LABEL_NORM_TRIM)
-chunk = dec.read(
-    start_frame=0,
-    frame_count=-1,
-    points=[0, 2],      # marker index mode
-    analogs=["EMG1", "EMG2"]  # label mode is supported too
-)
+chunk = dec.read(start_frame=0, frame_count=-1, points=None, analogs=None)
 
-pts, pts_valid = chunk.points()  # default: copy=True, returns (values, valid)
-ana, ana_valid = chunk.analogs(layout="CN")  # default analog layout is channel-major (C, N)
-ana_tm, ana_tm_valid = chunk.analogs(selector=[0, 1], layout="tcs")  # frame-major view helper
+pts, pts_valid = chunk.points()               # (T, P, 3), (T, P)
+ana, ana_valid = chunk.analogs(layout="CN")   # (C, N), (C, N)
+ana_tcs, ana_tcs_valid = chunk.analogs(layout="tcs")  # (T, C, S), (T, C, S)
 
 print(chunk.meta["n_frames"], len(chunk.meta["point_labels"]))
 ```
+
+Notes:
+
+- For non-contiguous selections, `copy=True` is required (the API will not hide implicit gathers).
+- `Chunk.meta_tree` is available only when the chunk is backed by a `.c3d` source path (and `SQZC3D_WITH_EZC3D=ON`).
 
 ### Build notes
 
