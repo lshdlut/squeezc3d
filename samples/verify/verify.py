@@ -8,12 +8,25 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
 def _repo_root() -> Path:
     # samples/verify/verify.py -> repo root
     return Path(__file__).resolve().parents[2]
+
+
+def _dev_root_repo_dir() -> Path | None:
+    env = os.environ.get("DEV_ROOT_WIN") or os.environ.get("DEV_ROOT")
+    if not env:
+        # Local convention fallback (Windows): C:\dev\<repo>
+        if os.name == "nt":
+            cand = Path(r"C:\dev") / _repo_root().name
+            if cand.exists():
+                return cand
+        return None
+    return Path(env) / _repo_root().name
 
 
 def _run_py(script: Path, args: list[str]) -> int:
@@ -31,7 +44,16 @@ def _find_cpp_verify_exe() -> Path | None:
         return p if p.exists() else None
 
     root = _repo_root()
-    candidates = [
+    dev = _dev_root_repo_dir()
+    candidates: list[Path] = []
+    if dev is not None:
+        candidates += [
+            dev / "build" / "verify_correctness_matrix_sqzc3d",
+            dev / "build" / "verify_correctness_matrix_sqzc3d.exe",
+            dev / "build" / "Release" / "verify_correctness_matrix_sqzc3d.exe",
+            dev / "build" / "Debug" / "verify_correctness_matrix_sqzc3d.exe",
+        ]
+    candidates += [
         root / "local_tools" / "build" / "verify_correctness_matrix_sqzc3d",
         root / "local_tools" / "build" / "verify_correctness_matrix_sqzc3d.exe",
         root / "local_tools" / "build" / "Release" / "verify_correctness_matrix_sqzc3d.exe",
@@ -128,10 +150,15 @@ def _ensure_wasm_built(wasm_dir: Path, rebuild: bool, empp: Path | None, ezc3d_s
 
 def _parse_args() -> argparse.Namespace:
     root = _repo_root()
+    dev = _dev_root_repo_dir()
     default_wasm_dir = (
         Path(os.environ["SQZC3D_WASM_DIR"])
         if os.environ.get("SQZC3D_WASM_DIR")
-        else (root / "local_tools" / "build-wasm-verify")
+        else (
+            (dev / "build-wasm-verify")
+            if dev is not None
+            else (Path(tempfile.gettempdir()) / root.name / "build-wasm-verify")
+        )
     )
 
     p = argparse.ArgumentParser(

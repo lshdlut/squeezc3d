@@ -71,7 +71,20 @@ def _find_ezc3d_src(root: Path, override: Optional[Path]) -> Path:
         if p.exists():
             return p
 
-    candidates = [
+    dev_root = os.environ.get("DEV_ROOT_WIN") or os.environ.get("DEV_ROOT")
+    dev = (Path(dev_root) / root.name) if dev_root else None
+    if dev is None and os.name == "nt":
+        cand = Path(r"C:\dev") / root.name
+        if cand.exists():
+            dev = cand
+
+    candidates: List[Path] = []
+    if dev is not None:
+        candidates += [
+            dev / "build" / "_deps" / "ezc3d-src",
+            dev / "build-ezc3d" / "_deps" / "ezc3d-src",
+        ]
+    candidates += [
         root / "local_tools" / "build" / "_deps" / "ezc3d-src",
         root / "local_tools" / "build-ezc3d" / "_deps" / "ezc3d-src",
         root / "build" / "_deps" / "ezc3d-src",
@@ -85,7 +98,7 @@ def _find_ezc3d_src(root: Path, override: Optional[Path]) -> Path:
 
     raise RuntimeError(
         "Could not locate ezc3d source dir. Set EZC3D_SRC_DIR or pass --ezc3d-src, "
-        "or build a native tree so local_tools/build/_deps/ezc3d-src exists."
+        "or build a native CMake tree so <build_dir>/_deps/ezc3d-src exists."
     )
 
 
@@ -142,7 +155,20 @@ def main() -> None:
     if build_inc_env:
         build_inc = Path(build_inc_env)
     else:
-        candidates = [
+        dev_root = os.environ.get("DEV_ROOT_WIN") or os.environ.get("DEV_ROOT")
+        dev = (Path(dev_root) / root.name) if dev_root else None
+        if dev is None and os.name == "nt":
+            cand = Path(r"C:\dev") / root.name
+            if cand.exists():
+                dev = cand
+
+        candidates: List[Path] = []
+        if dev is not None:
+            candidates += [
+                dev / "build" / "_deps" / "ezc3d-build" / "include",
+                dev / "build-ezc3d" / "_deps" / "ezc3d-build" / "include",
+            ]
+        candidates += [
             root / "local_tools" / "build" / "_deps" / "ezc3d-build" / "include",
             root / "local_tools" / "build-ezc3d" / "_deps" / "ezc3d-build" / "include",
             root / "build" / "_deps" / "ezc3d-build" / "include",

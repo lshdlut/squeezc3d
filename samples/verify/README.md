@@ -30,9 +30,9 @@ python samples/verify/verify.py all ^
 
 Notes:
 - `wasm` / `all` will auto-rebuild the WASM output under `--wasm-dir` when it is missing or stale.
-- Default `--wasm-dir` is `local_tools/build-wasm-verify` (or `SQZC3D_WASM_DIR` if set).
+- Default `--wasm-dir` comes from `SQZC3D_WASM_DIR` when set. Otherwise it uses `$DEV_ROOT_WIN/<repo>/build-wasm-verify` (when `DEV_ROOT_WIN` is set), or a temp directory.
 - Rebuild requires an Emscripten toolchain (recommended: set `EMSDK_HOME`).
-- WASM rebuild also requires ezc3d sources (auto-discovered from `local_tools/build/_deps/ezc3d-src` when available, or pass `--ezc3d-src` / set `EZC3D_SRC_DIR`).
+- WASM rebuild also requires ezc3d sources (auto-discovered from a native CMake FetchContent tree when available, or pass `--ezc3d-src` / set `EZC3D_SRC_DIR`).
 
 Environment variable defaults (optional):
 
