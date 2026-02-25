@@ -4,66 +4,58 @@
 
 1. 打开 C3D 文件（`sqzc3d_open_file`）。
 2. materialize（内存化）出一个 chunk（`sqzc3d_build_chunks`）。
-3. 获取 points payload 的 view（`sqzc3d_points_view_frames`）。
+3. 直接使用 chunk 数组（固定布局契约）。
 
 ```c
 #include "sqzc3d.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 
 int main(int argc, char** argv) {
-  if (argc < 2) {
-    fprintf(stderr, "usage: demo <path-to-c3d>\\n");
-    return 1;
-  }
-
-  const char* path = argv[1];
-
-  sqzc3d_open_opt_t open_opt;
-  sqzc3d_default_open_opt(&open_opt);
+  const char* path = argv[1];  // 假设 argv[1] 是有效路径
 
   sqzc3d_dec_t* dec = NULL;
-  int st = sqzc3d_open_file(&dec, path, &open_opt);
-  if (st != sqzc3d_STATUS_SUCCESS) {
-    fprintf(stderr, "open failed: %s\\n", sqzc3d_last_error(NULL));
-    return 2;
-  }
+  if (sqzc3d_open_file(&dec, path, NULL) != sqzc3d_STATUS_SUCCESS) return 1;
 
-  sqzc3d_build_opt_t build_opt;
-  sqzc3d_default_build_opt(&build_opt);
-  build_opt.frame_range.start = 0;
-  build_opt.frame_range.count = -1;  // all frames
-  build_opt.point_sel_mode = sqzc3d_POINT_SEL_ALL;
-  build_opt.analog_enable = sqzc3d_ANALOG_EN_ON;  // or OFF
+  sqzc3d_build_opt_t opt;
+  sqzc3d_default_build_opt(&opt);  // 默认：全帧、全点、analog 开启
+  // opt.analog_enable = sqzc3d_ANALOG_EN_OFF;  // 可选：禁用 analog materialization
 
   sqzc3d_chunk_t* chunk = NULL;
-  st = sqzc3d_build_chunks(dec, &build_opt, &chunk);
-  if (st != sqzc3d_STATUS_SUCCESS) {
-    fprintf(stderr, "build failed: %s\\n", sqzc3d_last_error(dec));
+  if (sqzc3d_build_chunks(dec, &opt, &chunk) != sqzc3d_STATUS_SUCCESS) {
     (void)sqzc3d_close_dec(dec);
-    return 3;
+    return 2;
   }
 
   const int n_frames = sqzc3d_chunk_num_frames(chunk);
   const int n_points = sqzc3d_chunk_num_points(chunk);
   printf("frames=%d points=%d\\n", n_frames, n_points);
 
-  sqzc3d_points_view_t view;
-  st = sqzc3d_points_view_frames(chunk, 0, n_frames, &view);
-  if (st != sqzc3d_STATUS_SUCCESS) {
-    fprintf(stderr, "view failed: %s\\n", sqzc3d_last_error(dec));
-    (void)sqzc3d_free_chunk(chunk);
-    (void)sqzc3d_close_dec(dec);
-    return 4;
+  // points_xyz 布局：(T, P, 3) float64，按 frame-major 连续存放。
+  // points_valid 布局：(T, P) uint8，按 frame-major 连续存放。
+  // 元素索引：((t * P + p) * 3 + k)，k∈{0,1,2} 分别对应 x,y,z。
+  if (chunk->points_xyz && n_frames > 0 && n_points > 0) {
+    printf("first x=%f\\n", (double)chunk->points_xyz[0]);
   }
 
-  // view.points_xyz layout: (T, P, 3) frame-major, contiguous.
-  // view.points_valid layout: (T, P) uint8.
-  if (view.n_frames > 0 && view.n_points > 0) {
-    const sqzc3d_num_t x0 = view.points_xyz[0];
-    const unsigned char v0 = view.points_valid[0];
-    printf("first x=%f valid=%d\\n", (double)x0, (int)v0);
+  // 按 label 取单个 marker（不拷贝；label->index + 跨帧步进访问）。
+  // 注意：label 查询返回的是 chunk-local 索引。
+  const char* want = "LANK";
+  int p = -1;
+  (void)sqzc3d_point_indices_for_labels(chunk, &want, 1, &p, -1);
+  if (p >= 0 && n_frames > 0) {
+    const size_t off = (size_t)p * 3;  // frame 0
+    printf("LANK x0=%f\\n", (double)chunk->points_xyz[off + 0]);
+  }
+
+  // 按 label 取单个 analog channel（不拷贝；analog 是 channel-major 连续存放）。
+  const char* awant = "EMG1";
+  int a = -1;
+  (void)sqzc3d_analog_indices_for_labels(chunk, &awant, 1, &a, -1);
+  if (a >= 0 && chunk->analog) {
+    const int N = chunk->n_frames * chunk->n_analog_by_frame;
+    const sqzc3d_num_t* emg1 = chunk->analog + (size_t)a * (size_t)N;
+    printf("EMG1 first=%f\\n", (double)emg1[0]);
   }
 
   (void)sqzc3d_free_chunk(chunk);
