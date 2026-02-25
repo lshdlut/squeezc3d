@@ -26,7 +26,6 @@ master_doc = "index"
 
 exclude_patterns = [
     "_build",
-    "zh",
 ]
 
 autosectionlabel_prefix_document = True

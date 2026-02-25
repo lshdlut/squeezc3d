@@ -12,11 +12,11 @@ predictable array semantics.
 - Optional modes: streaming reads and `.sqzc3d` bundles for cached/low-memory workflows.
 
 Links:
-- Documentation (English): `docs/index.md`
+- Documentation (English): `docs/en/index.md`
 - Documentation (简体中文): `docs/zh/index.md`
-- Benchmarks: `docs/benchmarks.md`
-- Build: `docs/build.md`
-- API reference (markdown): `docs/API.md`
+- Benchmarks: `docs/en/benchmarks.md`
+- Build: `docs/en/build.md`
+- API reference (markdown): `docs/en/API.md`
 
 ## Install (Python)
 
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 | DOG (4.23 MB) | C++ | 9.0x | 3.5x |
 | DOG (4.23 MB) | Python | 13.0x | 2.9x |
 
-Full methodology and results: `docs/benchmarks.md`.
+Full methodology and results: `docs/en/benchmarks.md`.
 
 ## Acknowledgements
 
@@ -105,4 +105,3 @@ All changes are reviewed by maintainers; please report issues if you spot incons
 ## License & third-party notices
 
 See `LICENSE` and `NOTICE` for dependency/license notes, `DEPENDENCIES.md` for build requirements.
-
