@@ -58,7 +58,8 @@ struct C3dStreamMeta {
   std::vector<double> analog_scales;
   // Point length unit conversion:
   // - point_units_per_meter: source units per meter (derived from POINT:UNITS when available)
-  // - target_units_per_meter: desired output units per meter (default: 1 => meters)
+  // - target_units_per_meter: desired output units per meter.
+  //   Default: match source units (no scaling). Call sqzc3d_c3d_stream_set_target_unit* to convert.
   // - point_unit_scale: multiplier applied to xyz to convert source -> target
   // - point_units_source: 0 => from POINT:UNITS, 1 => assumed mm (missing), 2 => assumed mm (unknown token)
   double point_units_per_meter = 0.0;

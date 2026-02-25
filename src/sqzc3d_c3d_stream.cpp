@@ -249,10 +249,10 @@ static std::size_t point_record_offset(const sqzc3d::C3dStreamMeta& meta,
          static_cast<std::size_t>(point_idx) * static_cast<std::size_t>(meta.point_record_bytes);
 }
 
-static std::size_t analog_record_offset(const sqzc3d::C3dStreamMeta& meta,
-                                       int frame_idx,
-                                       int sample_idx,
-                                       int analog_idx) {
+[[maybe_unused]] static std::size_t analog_record_offset(const sqzc3d::C3dStreamMeta& meta,
+                                        int frame_idx,
+                                        int sample_idx,
+                                        int analog_idx) {
   const std::size_t frame_base = frame_start_offset(meta, frame_idx);
   const std::size_t points_bytes = static_cast<std::size_t>(meta.n_points) *
                                   static_cast<std::size_t>(meta.point_record_bytes);
@@ -492,7 +492,7 @@ static inline void decode_point_record_dec(
   }
 }
 
-static sqzc3d_status read_analog_record(
+[[maybe_unused]] static sqzc3d_status read_analog_record(
     C3dStreamReader* reader,
     std::size_t offset,
     int analog_idx,
@@ -801,7 +801,7 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
           std::string("sqzc3d_c3d_stream_open_file: meta parse failed: ") + e.what());
     }
 
-    // By default, expose point coordinates in meters.
+    // By default, expose point coordinates in the raw C3D units (no scaling).
     if (!(tmp.point_units_per_meter > 0.0) || !std::isfinite(tmp.point_units_per_meter)) {
       // C3D files typically use mm; treat missing/unknown units as mm for robustness.
       tmp.point_units_per_meter = 1000.0;
@@ -821,8 +821,8 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     } else {
       tmp.point_units_source = 0;
     }
-    tmp.target_units_per_meter = 1.0;
-    tmp.point_unit_scale = 1.0 / tmp.point_units_per_meter;
+    tmp.target_units_per_meter = tmp.point_units_per_meter;
+    tmp.point_unit_scale = 1.0;
 
     tmp.n_points = static_cast<int>(c3d->header().nb3dPoints());
     tmp.n_analogs = static_cast<int>(c3d->header().nbAnalogs());
