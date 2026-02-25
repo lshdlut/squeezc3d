@@ -103,12 +103,7 @@ class View:
         if self.point_labels is None and not self.type_groups:
             return None
 
-        mask: bytearray | None = None
-
-        if self.point_labels is not None:
-            idx = [int(x) for x in self._chunk._point_indices_for_labels(self.point_labels)]
-            mask = indices_to_mask(idx, n_points)
-
+        type_mask: bytearray | None = None
         if self.type_groups:
             idx = type_group_indices(
                 self._chunk,
@@ -116,16 +111,23 @@ class View:
                 strict=bool(self.type_groups_strict),
                 missing_meta=str(self.type_groups_missing_meta),
             )
-            m2 = indices_to_mask(idx, n_points) if idx else bytearray(n_points)
-            if mask is None:
-                mask = m2
-            else:
-                for i in range(n_points):
-                    mask[i] = 1 if (mask[i] != 0 and m2[i] != 0) else 0
+            type_mask = indices_to_mask(idx, n_points) if idx else bytearray(n_points)
 
-        if mask is None:
-            return None
-        return mask_to_indices(mask)
+        if self.point_labels is None:
+            if type_mask is None:
+                return None
+            return mask_to_indices(type_mask)
+
+        # Preserve user-provided label order for points selection.
+        label_idx = [int(x) for x in self._chunk._point_indices_for_labels(self.point_labels)]
+        if type_mask is None:
+            return label_idx
+
+        out: list[int] = []
+        for idx in label_idx:
+            if 0 <= idx < n_points and type_mask[idx] != 0:
+                out.append(idx)
+        return out
 
     def _points_query_key(self) -> tuple:
         pl = None if self.point_labels is None else tuple(self.point_labels)
