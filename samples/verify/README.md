@@ -16,6 +16,7 @@ Subcommands:
 - `wasm`: standalone browser smoke for a `sqzc3d.js/.wasm` build (Playwright)
 - `cpp`: run the C++ matrix executable (built via CMake)
 - `all`: run `native` + `wasm`
+- `stress`: scenario-oriented stress workflow (PASS/WARN/FAIL)，默认覆盖 G0,S01,S02,S03,S04,S05,S06,S07,S08,S09,S10,S11,S12,S13,S14,S15（`S11` 在 Python 绑定缺少 `export_bundle` 时会降级为 WARN；`S13` 为 streaming API 的信息性项）
 
 ## Recommended: verify all
 
@@ -51,6 +52,9 @@ Environment variable defaults (optional):
 - `samples/verify/cpp/`
   - C++ validation sources (built via CMake)
 
+- `samples/verify/STRESS_PLAN.md`
+  - scenario-based stress plan (vs ezc3d)
+
 ## Quick usage
 
 1. Standalone wasm smoke (requires a directory containing `sqzc3d.js` + `sqzc3d.wasm`):
@@ -66,4 +70,12 @@ python samples/verify/verify.py wasm ^
 
 ```bash
 python samples/verify/verify.py cpp --exe path\\to\\verify_correctness_matrix_sqzc3d.exe --c3d path\\to\\file.c3d
+```
+
+3. Stress mode:
+
+```bash
+python samples/verify/verify.py stress --c3d path\\to\\c3d_dir --report stress_report.json
+python samples/verify/verify.py stress --roots path\\to\\dataset_dir --scenarios G0 S07 S08 --unit-contract auto
+python samples/verify/verify.py stress --c3d path\\to\\c3d_dir --strict-unit --strict-validity --max-fail 3
 ```

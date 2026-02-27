@@ -178,6 +178,31 @@ def _parse_args() -> argparse.Namespace:
     p_native = sub.add_parser("native", help="Native correctness smoke vs ezc3d (Python).")
     p_native.add_argument("--c3d", type=Path, default=os.environ.get("C3D_DIR") or os.environ.get("C3D_FILE"))
 
+    p_stress = sub.add_parser("stress", help="Scenario-oriented stress workflow (self-reporting).")
+    p_stress.add_argument("--c3d", type=Path, default=os.environ.get("C3D_DIR") or os.environ.get("C3D_FILE"))
+    p_stress.add_argument("--roots", nargs="*", action="append", default=[])
+    p_stress.add_argument("--sample", type=int, default=int(os.environ.get("C3D_STRESS_SAMPLE", "6")))
+    p_stress.add_argument("--seed", type=int, default=42)
+    p_stress.add_argument(
+        "--scenarios",
+        nargs="+",
+        default=["G0", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15"],
+        help="scenario ids to run",
+    )
+    p_stress.add_argument("--unit-contract", choices=["meters", "raw", "auto"], default="auto")
+    p_stress.add_argument(
+        "--strict",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="strict core assertions (meta/meta_tree in scenarios that use them)",
+    )
+    p_stress.add_argument("--strict-unit", action=argparse.BooleanOptionalAction, default=False, help="treat unit mismatch as hard fail")
+    p_stress.add_argument(
+        "--strict-validity", action=argparse.BooleanOptionalAction, default=False, help="treat validity policy mismatch as hard fail"
+    )
+    p_stress.add_argument("--max-fail", type=int, default=999)
+    p_stress.add_argument("--report", type=Path, default=None)
+
     p_wasm = sub.add_parser("wasm", help="Standalone wasm browser smoke (Playwright).")
     p_wasm.add_argument("--wasm-dir", type=Path, default=default_wasm_dir)
     p_wasm.add_argument("--c3d-dir", type=Path, default=os.environ.get("C3D_DIR"))
@@ -211,6 +236,39 @@ def main() -> None:
         rc = _run_py(native_script, native_args)
         if rc != 0 and args.cmd != "all":
             raise SystemExit(rc)
+
+    if args.cmd == "stress":
+        stress_script = vdir / "_impl" / "stress_sqzc3d.py"
+        stress_roots: list[str] = []
+        stress_args = ["--sample", str(int(getattr(args, "sample", 6))), "--seed", str(int(getattr(args, "seed", 42)))]
+        if getattr(args, "c3d", None) is not None:
+            c3d = Path(args.c3d)
+            if c3d.is_dir():
+                stress_roots.append(str(c3d))
+            else:
+                stress_args.append(str(c3d))
+        for root_group in getattr(args, "roots", []):
+            if not root_group:
+                continue
+            if isinstance(root_group, list):
+                stress_roots.extend(str(root) for root in root_group)
+            else:
+                stress_roots.append(str(root_group))
+        if stress_roots:
+            stress_args += ["--roots", *stress_roots]
+        stress_args += ["--unit-contract", str(getattr(args, "unit_contract", "auto"))]
+        stress_args += ["--scenarios", *getattr(args, "scenarios", ["G0"])]
+        if args.strict is not None:
+            stress_args += ["--strict" if bool(args.strict) else "--no-strict"]
+        if args.strict_unit is not None:
+            stress_args += ["--strict-unit" if bool(args.strict_unit) else "--no-strict-unit"]
+        if args.strict_validity is not None:
+            stress_args += ["--strict-validity" if bool(args.strict_validity) else "--no-strict-validity"]
+        stress_args += ["--max-fail", str(int(getattr(args, "max_fail", 999)))]
+        if getattr(args, "report", None):
+            stress_args += ["--report", str(Path(args.report))]
+        rc = _run_py(stress_script, stress_args)
+        raise SystemExit(rc)
 
     if args.cmd in ("all", "wasm"):
         wasm_dir = getattr(args, "wasm_dir", None)

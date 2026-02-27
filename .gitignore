@@ -17,6 +17,8 @@ docs/zh/_build/
 /tmp_*.txt
 /tmp_std_*.txt
 /temp_*.py
+/temp_*.json
+/stress_report*.json
 /build_wasm_final.py
 
 # Build system artifacts

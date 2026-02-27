@@ -463,13 +463,8 @@ def _extract_ezc3d_arrays(ez) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
     else:
         analog_by_frame = 0
 
-    # sqzc3d exposes points in meters by default; normalize ezc3d points to meters too.
-    units = _extract_ezc3d_label_series(params, "POINT", "UNITS")
-    units_per_meter = _units_per_meter_from_unit_token(units[0] if units else "")
-    if not units_per_meter or not np.isfinite(units_per_meter):
-        # Match sqzc3d behavior: treat missing/unknown units as mm.
-        units_per_meter = 1000.0
-    points = points / float(units_per_meter)
+    # Keep points in ezc3d raw units to match sqzc3d default output.
+    # (Unit normalization/scaling is explicitly stress-tested in stress_sqzc3d.py:S07.)
 
     return points, valid, analogs, analog_valid, max(analog_by_frame, 1 if analogs.shape[0] > 0 else 0)
 
@@ -731,6 +726,11 @@ def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     ez_params = _to_dict_like(ez.get("parameters", {}))
     ez_point_labels = _extract_ezc3d_label_series(ez_params, "POINT", "LABELS")
     ez_analog_labels = _extract_ezc3d_label_series(ez_params, "ANALOG", "LABELS")
+    if np.asarray(ez_analog).shape[0] == 0 and len(ez_analog_labels) == 1:
+        # ezc3d sometimes exposes a placeholder label even when ANALOG:USED == 0.
+        # Treat it as empty so points-only files don't fail strict label checks.
+        if str(ez_analog_labels[0]).strip().lower() in ("nodata",):
+            ez_analog_labels = []
     if [str(v) if v is not None else "" for v in point_labels_sq] != [str(v) if v is not None else "" for v in ez_point_labels]:
         issues.append(f"point labels mismatch (sq={point_labels_sq[:3]}... ez={list(ez_point_labels)[:3]}...)")
     if [str(v) if v is not None else "" for v in analog_labels_sq] != [str(v) if v is not None else "" for v in ez_analog_labels]:
