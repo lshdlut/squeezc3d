@@ -390,6 +390,13 @@ struct PyChunk {
       CheckStatus(sqzc3d_points_view_points(chunk, ptr, static_cast<int>(point_indices.size()), &view),
                   "sqzc3d_points_view_points");
     }
+    if (view.n_frames == 0) {
+      std::vector<py::ssize_t> vshape = {0, static_cast<py::ssize_t>(view.n_points), 3};
+      std::vector<py::ssize_t> vshape_valid = {0, static_cast<py::ssize_t>(view.n_points)};
+      auto values = py::array_t<sqzc3d_num_t>(vshape);
+      auto valid = py::array_t<unsigned char>(vshape_valid);
+      return py::make_tuple(values, valid);
+    }
     if (view.n_points == 0) {
       std::vector<py::ssize_t> vshape = {view.n_frames, 0, 3};
       std::vector<py::ssize_t> vshape_valid = {view.n_frames, 0};
@@ -506,6 +513,22 @@ struct PyChunk {
         return py::make_tuple(values, valid);
       }
       std::vector<py::ssize_t> vshape = {0, static_cast<py::ssize_t>(view.n_samples)};
+      auto values = py::array_t<sqzc3d_num_t>(vshape);
+      auto valid = py::array_t<unsigned char>(vshape);
+      return py::make_tuple(values, valid);
+    }
+    if (view.n_samples == 0) {
+      const bool tcs = (layout == "tcs" || layout == "TCS");
+      const py::ssize_t t = static_cast<py::ssize_t>(view.n_frames);
+      const py::ssize_t c = static_cast<py::ssize_t>(view.n_analogs);
+      const py::ssize_t s = static_cast<py::ssize_t>(view.n_analog_by_frame);
+      if (tcs) {
+        std::vector<py::ssize_t> vshape = {t, c, s};
+        auto values = py::array_t<sqzc3d_num_t>(vshape);
+        auto valid = py::array_t<unsigned char>(vshape);
+        return py::make_tuple(values, valid);
+      }
+      std::vector<py::ssize_t> vshape = {c, 0};
       auto values = py::array_t<sqzc3d_num_t>(vshape);
       auto valid = py::array_t<unsigned char>(vshape);
       return py::make_tuple(values, valid);
@@ -820,6 +843,17 @@ PYBIND11_MODULE(_core, m) {
       },
       py::arg("path"),
       py::arg("strict") = true);
+
+  m.def(
+      "export_bundle",
+      [](const std::string& out_dir, const std::shared_ptr<PyChunk>& chunk) {
+        if (!chunk || !chunk->holder_ || !chunk->holder_->chunk) {
+          throw std::runtime_error("chunk is not available");
+        }
+        CheckStatus(sqzc3d_export_bundle(out_dir.c_str(), chunk->holder_->chunk), "sqzc3d_export_bundle");
+      },
+      py::arg("out_dir"),
+      py::arg("chunk"));
 
   py::class_<PyDecoder>(m, "Decoder")
       .def(py::init<const std::string&, int>(), py::arg("source_path"),

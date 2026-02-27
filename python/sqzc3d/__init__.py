@@ -19,6 +19,8 @@ if _core is not None:
     Decoder = _core.Decoder
     Chunk = _core.Chunk
     load_bundle = _core.load_bundle
+    if hasattr(_core, "export_bundle"):
+        export_bundle = _core.export_bundle
 
     from .easy import View, read  # noqa: E402
 
@@ -79,6 +81,8 @@ if _core is not None:
         "SQZC3D_LABEL_NORM_TRIM",
         "SQZC3D_LABEL_NORM_CASEFOLD_WS",
     ]
+    if hasattr(_core, "export_bundle"):
+        __all__.append("export_bundle")
 else:
     __all__ = ["__version__"]
 
