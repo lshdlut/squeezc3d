@@ -12,7 +12,7 @@ This page answers a practical question:
 
 Correctness is defined **within that scope**.
 
-## 30-second TL;DR
+## 30-second summary
 
 For beginners:
 

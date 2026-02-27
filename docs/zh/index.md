@@ -60,6 +60,12 @@ user_guide_type_groups
 user_guide_units
 user_guide_bundles
 user_guide_errors
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: 正确性与兼容性
+
 user_guide_correctness_compatibility
 ```
 

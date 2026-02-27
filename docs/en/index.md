@@ -3,7 +3,7 @@
 `squeezc3d`, aka `sqzc3d`, is a high-performance C3D loading library.
 The goal is simple: read C3D into **predictable arrays** (`points/analogs`) with clear semantics.
 
-## 30-second TL;DR
+## 30-second summary
 
 - If you just want arrays for analysis or simulation, start with Python Easy: `sqzc3d.read(...)`.
 - You get arrays plus explicit `*_valid` masks, so missing samples are not a guessing game.
@@ -63,6 +63,12 @@ user_guide_type_groups
 user_guide_units
 user_guide_bundles
 user_guide_errors
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Correctness & Compatibility
+
 user_guide_correctness_compatibility
 ```
 
