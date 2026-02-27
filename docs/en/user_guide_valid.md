@@ -1,8 +1,8 @@
-# Validity — valid masks
+# Validity
 
 `sqzc3d` always returns data together with a validity mask.
 
-TL;DR:
+Quick summary:
 
 - Treat `*_valid` as the source of truth.
 - If a sample is invalid, consider it “missing” and do not use the value.

@@ -6,7 +6,7 @@ This page shows a minimal end-to-end C flow:
 2. Materialize a chunk (`sqzc3d_build_chunks`).
 3. Use the chunk arrays directly (fixed layout contract).
 
-TL;DR:
+Quick summary:
 
 - `sqzc3d_build_chunks(...)` gives you contiguous arrays you can index directly.
 - Always pair data arrays with their `*_valid` masks when you care about missing samples.

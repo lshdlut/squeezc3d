@@ -1,6 +1,6 @@
-# Python Easy API — `read` / `View`
+# Python Easy API
 
-TL;DR:
+Quick summary:
 
 - Use this layer when you want “just give me arrays”.
 - Think of `View` as “arrays + current selection state”.

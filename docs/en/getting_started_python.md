@@ -8,7 +8,7 @@ pip install sqzc3d
 
 ## Recommended: Easy — `read -> View`
 
-TL;DR:
+Quick summary:
 
 - Use `sqzc3d.read(...)` when you want arrays fast.
 - Select by labels, and treat `*_valid` as the source of truth.

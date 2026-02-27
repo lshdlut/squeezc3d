@@ -2,7 +2,7 @@
 
 This page defines selection semantics across Python and C.
 
-TL;DR:
+Quick summary:
 
 - `None` means “ALL”, `[]` means “empty”.
 - Label selection is order-preserving.

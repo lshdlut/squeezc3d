@@ -1,4 +1,4 @@
-# Python Easy 接口 — `read` / `View`
+# Python Easy 接口
 
 30 秒版本：
 

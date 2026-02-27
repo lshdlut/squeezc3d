@@ -1,6 +1,6 @@
 # Units and scaling
 
-TL;DR:
+Quick summary:
 
 - `POINT:UNITS` is metadata describing the length unit of point coordinates.
 - By default, `sqzc3d` does not implicitly normalize point coordinates to meters.

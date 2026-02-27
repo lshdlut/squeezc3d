@@ -11,7 +11,7 @@ predictable array semantics.
 - Clear selector/index-space contracts (labels, type-groups).
 - Optional modes: streaming reads and `.sqzc3d` bundles for cached/low-memory workflows.
 
-TL;DR:
+Quick summary:
 
 - Want arrays for analysis/simulation: `pip install sqzc3d` then `sqzc3d.read("trial.c3d")`.
 - Want confidence before switching from `ezc3d`: read `docs/en/user_guide_correctness_compatibility.md` and run `python samples/verify/verify.py stress`.

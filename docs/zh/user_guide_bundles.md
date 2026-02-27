@@ -1,4 +1,4 @@
-# Bundles — `.sqzc3d`
+# Bundles
 
 30 秒版本：
 

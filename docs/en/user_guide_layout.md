@@ -1,10 +1,10 @@
-# Data layout — materialize
+# Data layout
 
 This page documents the default array layouts used by `sqzc3d` materialization.
 
 The goal is predictable shape and memory order for downstream code.
 
-TL;DR:
+Quick summary:
 
 - Points: `(T, P, 3)` plus a matching `(T, P)` `points_valid`.
 - Analogs: `(C, N)` plus a matching `(C, N)` `analogs_valid` by default.

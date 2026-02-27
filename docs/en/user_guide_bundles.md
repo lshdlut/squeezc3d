@@ -1,6 +1,6 @@
-# Bundles — `.sqzc3d`
+# Bundles
 
-TL;DR:
+Quick summary:
 
 - A bundle is a cache format for fast reloads.
 - Prefer the single-file bundle `*.sqzc3d`.

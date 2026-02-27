@@ -1,6 +1,6 @@
-# Type-groups — marker sets
+# Type-groups
 
-TL;DR:
+Quick summary:
 
 - Type-groups are like “tags” for points (for example, a marker group).
 - In Python Easy, set `View.type_groups` to apply an extra AND-filter.

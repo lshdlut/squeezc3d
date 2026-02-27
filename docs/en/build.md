@@ -1,6 +1,6 @@
 # Build and installation
 
-TL;DR:
+Quick summary:
 
 - If you only use Python, `pip install sqzc3d` is enough.
 - If you need C/C++ or want to build samples/benchmarks, build from source via CMake.

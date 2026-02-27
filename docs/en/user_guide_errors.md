@@ -2,7 +2,7 @@
 
 This page describes how errors are reported in Python and the C API.
 
-TL;DR:
+Quick summary:
 
 - Python raises `RuntimeError` on failures.
 - C APIs return a `sqzc3d_STATUS_*` code; use `sqzc3d_last_error(...)` for a human message.

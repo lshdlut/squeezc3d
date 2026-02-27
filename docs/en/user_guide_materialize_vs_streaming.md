@@ -3,7 +3,7 @@
 `sqzc3d` supports two access models. Both aim for consistent semantics (layout/validity/units).
 The difference is resource usage and how data is delivered.
 
-TL;DR:
+Quick summary:
 
 - Materialize: read once and get arrays. This is the default you probably want.
 - Streaming: keep the file open and read into your buffers on demand. Use this for tight memory or special I/O.

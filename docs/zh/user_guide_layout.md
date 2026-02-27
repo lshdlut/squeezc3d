@@ -1,4 +1,4 @@
-# 数据布局 — Materialize
+# 数据布局
 
 本页描述 `sqzc3d` 在 materialize（内存化）时使用的默认数组布局。
 

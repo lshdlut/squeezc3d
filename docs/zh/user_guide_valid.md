@@ -1,4 +1,4 @@
-# 有效性 — Validity
+# 有效性
 
 `sqzc3d` 会始终返回数据以及对应的 validity mask。
 
