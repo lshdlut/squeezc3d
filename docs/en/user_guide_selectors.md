@@ -2,7 +2,15 @@
 
 This page defines selection semantics across Python and C.
 
-## Python (Easy)
+TL;DR:
+
+- `None` means “ALL”, `[]` means “empty”.
+- Label selection is order-preserving.
+- Indices can mean different index spaces; know which one you are using.
+
+Mental model: labels are “names”, indices are “numbers”, and you must not mix numbering schemes.
+
+## Python Easy
 
 The easy surface is labels-only.
 
@@ -20,7 +28,7 @@ Selector semantics:
 - `[]` means empty selection.
 - `str` or `sequence[str]` means label selection.
 
-## Python (Core)
+## Python Core
 
 The core surface supports indices or labels:
 
@@ -35,7 +43,7 @@ Notes:
 
 - For non-contiguous selections, `copy=True` is required.
 
-## C API (`sqzc3d_build_opt_t`)
+## C API — `sqzc3d_build_opt_t`
 
 The C materialize API selects points/analogs during chunk construction.
 
@@ -61,4 +69,3 @@ In the C API:
 - `sqzc3d_build_opt_t.point_sel` uses the source-total space.
 - `sqzc3d_chunk_t.type_group_indices` are chunk-local.
 - All point indices exposed from a chunk (views/type-groups) are chunk-local.
-

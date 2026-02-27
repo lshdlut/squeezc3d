@@ -16,8 +16,9 @@ For `sqzc3d`, the native representation is the chunk's contiguous frame-major ar
 
 Notes:
 
-- `bench_sqzc3d` and the Python `sqzc3d` bench disable analog reads to focus on point materialize + access patterns.
-- `ezc3d` materializes full in-memory structures (including analogs if present).
+- Both `bench_sqzc3d` and `bench_ezc3d` fully parse a C3D (points + analogs if present).
+  The access-pattern microbench focuses on point arrays; analog arrays are loaded but not accessed.
+  The example files shown here have no analog channels, so analog materialization does not affect the reported numbers.
 
 ## Reproduce
 
@@ -38,7 +39,7 @@ On multi-config generators (Visual Studio), binaries may be under `<build_dir>/R
 
 ## Materialize mode
 
-### C++ (native)
+### C++ — native
 
 PFERD (117.96 MB, frames=55,844, points=132, repeat=1):
 
@@ -78,7 +79,7 @@ Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.2 (ABI 3),
 | `window_copy_us_T256_kall` | 3.983 | 42.041 | 10.6x |
 | `peak_rss_mb` | 44.789 | 130.855 | 2.9x |
 
-## Streaming mode (sqzc3d-only, low memory)
+## Streaming mode — sqzc3d-only, low memory
 
 Example (PFERD, repeat=1):
 
@@ -88,4 +89,3 @@ Example (PFERD, repeat=1):
 | `peak_rss_delta_mb` | 2.762 |
 | `read_window_ms_T256_kall` | 0.532 |
 | `read_window_ms_T256_k32` | 0.889 |
-

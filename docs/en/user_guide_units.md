@@ -1,5 +1,13 @@
 # Units and scaling
 
+TL;DR:
+
+- `POINT:UNITS` is metadata describing the length unit of point coordinates.
+- By default, `sqzc3d` does not implicitly normalize point coordinates to meters.
+- In streaming mode, you can request an explicit target unit when you want conversion.
+
+Mental model: units are ruler marks (mm/cm/m). Default is “don’t silently swap rulers”.
+
 ## POINT:UNITS
 
 `sqzc3d` treats `POINT:UNITS` as metadata describing the length unit of point coordinates.
@@ -42,4 +50,3 @@ Advanced:
 
 - `sqzc3d::sqzc3d_c3d_stream_set_target_units_per_meter(&r, 1.0)` means meters.
 - `sqzc3d::sqzc3d_c3d_stream_set_target_units_per_meter(&r, 1000.0)` means millimeters.
-

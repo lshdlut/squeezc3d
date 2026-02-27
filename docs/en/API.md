@@ -1,4 +1,4 @@
-# squeezc3d API Reference (`sqzc3d`)
+# squeezc3d API Reference — `sqzc3d`
 
 Applies to `sqzc3d` v0.3.x (ABI `SQZC3D_ABI_VERSION=3`).
 
@@ -141,7 +141,7 @@ Header-only helpers in `include/sqzc3d_easy.h`:
 - Resources allocated by this library must be released with corresponding `free` APIs above.
 - In v0.x, there is no residual/camera-mask public payload; if needed downstream, add via request/extension.
 
-## Python API (pybind11)
+## Python API — pybind11
 
 High-level Python exports:
 
@@ -156,8 +156,9 @@ High-level Python exports:
 - `sqzc3d.ChunkQuery` / `sqzc3d.ChunkRecipe` (AND-only chunk-local filtering)
 - `sqzc3d.type_group_indices(chunk, group_names, strict=False)`
 - `sqzc3d.load_bundle(path: str, strict: bool = True)`
+- `sqzc3d.export_bundle(out_dir: str, chunk: sqzc3d.Chunk)`
 
-### Easy layer (recommended)
+### Easy layer — recommended
 
 `read`:
 

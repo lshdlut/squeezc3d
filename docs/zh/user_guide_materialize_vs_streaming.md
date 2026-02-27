@@ -2,6 +2,13 @@
 
 `sqzc3d` 支持两种访问模型，它们都能得到一致的语义（layout/validity/units），差异在于资源与交付形态：
 
+30 秒版本：
+
+- Materialize：一次性读入并产出数组。大多数用户默认就用它。
+- Streaming：保持文件打开，按需读到你提供的 buffer。只有在内存很紧或 I/O 很特殊时才需要。
+
+形象化：Materialize 像把整张表读进来；Streaming 像需要哪几行就读哪几行。
+
 ## Materialize：一次性内存化为 `Chunk`
 
 Materialize 的特点：

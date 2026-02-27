@@ -1,14 +1,19 @@
-# squeezc3d（缩写：`sqzc3d`）
+# squeezc3d — `sqzc3d`
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml/badge.svg)](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml)
 
-`squeezc3d`（缩写 `sqzc3d`）是一个高性能 C3D 加载库，专注于快速 chunk materialization 与可预测的数组语义。
+`squeezc3d`（简称 `sqzc3d`）是一个高性能 C3D 加载库，专注于快速 chunk materialization 与可预测的数组语义。
 
 - Chunk-first：连续的 `(T, P, 3)` 点数组 + 显式 `valid` mask。
 - 清晰的 selector/index-space 契约（labels、type-groups）。
 - 可选能力：streaming 读取与 `.sqzc3d` bundle，用于缓存/低内存等场景。
+
+30 秒版本：
+
+- 想拿数组做分析/仿真：`pip install sqzc3d`，然后 `sqzc3d.read("trial.c3d")`。
+- 想在替换 `ezc3d` 前先放心：看 `docs/zh/user_guide_correctness_compatibility.md`，并跑 `python samples/verify/verify.py stress`。
 
 链接：
 - 在线文档（English）：https://squeezc3d.readthedocs.io/en/latest/
@@ -19,13 +24,13 @@
 - 构建：`docs/zh/build.md`
 - API 参考（markdown）：`docs/zh/API.md`
 
-## 安装（Python）
+## 安装 — Python
 
 ```bash
 pip install sqzc3d
 ```
 
-## 快速上手（Python，Easy）
+## 快速上手 — Python Easy
 
 ```python
 import sqzc3d as sq
@@ -44,7 +49,7 @@ emg1 = v.analog["EMG1"]              # (N,)
 emg1_valid = v.analog_valid["EMG1"]  # (N,)
 ```
 
-## 快速上手（C）
+## 快速上手 — C
 
 ```c
 #include "sqzc3d.h"
@@ -75,7 +80,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-## 基准测试摘要（materialize）
+## 基准测试摘要 — materialize
 
 `speedup_x = ezc3d / sqzc3d`（值越大表示 `sqzc3d` 越好）。
 

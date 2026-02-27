@@ -1,4 +1,12 @@
-# Type-groups (marker sets)
+# Type-groups — marker sets
+
+TL;DR:
+
+- Type-groups are like “tags” for points (for example, a marker group).
+- In Python Easy, set `View.type_groups` to apply an extra AND-filter.
+- Missing-metadata behavior is configurable; strict mode can raise.
+
+Mental model: filtering a spreadsheet by a “category” column.
 
 Some C3D files include metadata describing point "type groups" (for example, a marker group).
 
@@ -10,7 +18,9 @@ Some C3D files include metadata describing point "type groups" (for example, a m
 
 All indices are in the chunk-local point index space.
 
-## Python Easy (recommended)
+## Python Easy
+
+Recommended for most users.
 
 The easy layer supports type-groups via `View.type_groups`.
 
@@ -79,4 +89,3 @@ for (int gi = 0; gi < chunk->n_type_groups; ++gi) {
   // indices are chunk-local point indices: chunk->type_group_indices[s..e)
 }
 ```
-

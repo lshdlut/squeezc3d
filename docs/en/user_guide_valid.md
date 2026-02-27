@@ -1,6 +1,14 @@
-# Validity (valid masks)
+# Validity — valid masks
 
 `sqzc3d` always returns data together with a validity mask.
+
+TL;DR:
+
+- Treat `*_valid` as the source of truth.
+- If a sample is invalid, consider it “missing” and do not use the value.
+- Empty selections still return empty arrays together with empty valid masks.
+
+Mental model: every sample comes with a “usable / not usable” sticker.
 
 ## Points
 
@@ -38,4 +46,3 @@ Downstream code should:
 
 - Prefer `*_valid` masks for filtering.
 - Avoid assuming all values are finite.
-

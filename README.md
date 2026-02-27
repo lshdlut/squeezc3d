@@ -1,15 +1,20 @@
-# squeezc3d (abbrev: `sqzc3d`)
+# squeezc3d — `sqzc3d`
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml/badge.svg)](https://github.com/lshdlut/squeezc3d/actions/workflows/ci.yml)
 
-`squeezc3d` (abbrev `sqzc3d`) is a high-performance C3D loading library focused on fast chunk materialization and
+`squeezc3d`, aka `sqzc3d`, is a high-performance C3D loading library focused on fast chunk materialization and
 predictable array semantics.
 
 - Chunk-first: contiguous `(T, P, 3)` points + explicit `valid` masks.
 - Clear selector/index-space contracts (labels, type-groups).
 - Optional modes: streaming reads and `.sqzc3d` bundles for cached/low-memory workflows.
+
+TL;DR:
+
+- Want arrays for analysis/simulation: `pip install sqzc3d` then `sqzc3d.read("trial.c3d")`.
+- Want confidence before switching from `ezc3d`: read `docs/en/user_guide_correctness_compatibility.md` and run `python samples/verify/verify.py stress`.
 
 Links:
 - Documentation (English, hosted): https://squeezc3d.readthedocs.io/en/latest/
@@ -20,13 +25,13 @@ Links:
 - Build: `docs/en/build.md`
 - API reference (markdown): `docs/en/API.md`
 
-## Install (Python)
+## Install — Python
 
 ```bash
 pip install sqzc3d
 ```
 
-## Quickstart (Python, Easy)
+## Quickstart — Python Easy
 
 ```python
 import sqzc3d as sq
@@ -45,7 +50,7 @@ emg1 = v.analog["EMG1"]              # (N,)
 emg1_valid = v.analog_valid["EMG1"]  # (N,)
 ```
 
-## Quickstart (C)
+## Quickstart — C
 
 ```c
 #include "sqzc3d.h"
@@ -76,7 +81,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-## Benchmark summary (materialize)
+## Benchmark summary — materialize
 
 `speedup_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`).
 

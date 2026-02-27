@@ -1,4 +1,12 @@
-# Bundles (`.sqzc3d`)
+# Bundles — `.sqzc3d`
+
+TL;DR:
+
+- A bundle is a cache format for fast reloads.
+- Prefer the single-file bundle `*.sqzc3d`.
+- `sqzc3d.read(...)` auto-detects bundles; strict vs best-effort is configurable.
+
+Mental model: “pack the decoded tables into a sealed box, then reopen the box next time”.
 
 `sqzc3d` can persist a materialized chunk into a compact "bundle" format for fast reloads.
 
@@ -32,6 +40,15 @@ v = sq.read("trial.sqzc3d", bundle_strict=True)   # default
 v = sq.read("trial.sqzc3d", bundle_strict=False)  # best-effort load
 ```
 
+Export (core API):
+
+```python
+import sqzc3d as sq
+
+v = sq.read("trial.c3d")
+sq.export_bundle("trial.sqzc3d", v._chunk)   # or a directory path like "bundle_dir/"
+```
+
 ## C API
 
 Export:
@@ -52,4 +69,3 @@ Notes:
 
 - Bundles load into a `sqzc3d_chunk_t*`, so you can reuse the same view/query APIs.
 - Bundles may optionally contain extra metadata; consumers should use `chunk->reason` / `sqzc3d_last_error_detail(...)` for diagnostics on mismatch.
-

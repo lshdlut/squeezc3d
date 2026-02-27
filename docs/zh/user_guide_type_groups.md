@@ -1,4 +1,12 @@
-# Type-groups（点类型组 / marker sets）
+# Type-groups — 点类型组
+
+30 秒版本：
+
+- Type-groups 可以理解为 points 的“标签/分组”（例如 MARKER 组）。
+- 在 Python easy 层，设置 `View.type_groups` 就能作为额外的 AND-filter 来筛选 points。
+- 缺失元数据时的行为是可配置的；strict 模式可以直接抛错。
+
+形象化：像给一张表加了“分类”列，然后按分类筛选。
 
 一些 C3D 文件会包含描述 point “type groups”（例如 marker group）的元数据。
 
@@ -10,7 +18,9 @@
 
 所有 indices 都在 chunk-local point index space 中。
 
-## Python Easy（推荐）
+## Python Easy
+
+推荐：大多数用户直接用这层即可。
 
 Easy 层通过 `View.type_groups` 支持 type-groups。
 

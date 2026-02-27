@@ -1,4 +1,12 @@
-# Bundles（`.sqzc3d`）
+# Bundles — `.sqzc3d`
+
+30 秒版本：
+
+- bundle 是 `sqzc3d` 的缓存格式，用来“下次更快加载”。
+- 推荐使用单文件 bundle：`*.sqzc3d`。
+- `sqzc3d.read(...)` 会自动识别 bundle；strict 与 best-effort 行为可选。
+
+形象化：把“解码后的两张表”装进一个缓存箱，下次直接开箱，不必再从头解码。
 
 `sqzc3d` 支持把 materialize 后的 chunk 持久化为一个紧凑的 “bundle” 格式，用于快速重新加载。
 
@@ -30,6 +38,15 @@ print(v.meta["n_frames"], v.meta["n_points"])
 ```python
 v = sq.read("trial.sqzc3d", bundle_strict=True)   # 默认
 v = sq.read("trial.sqzc3d", bundle_strict=False)  # best-effort（尽量加载）
+```
+
+导出（core API）：
+
+```python
+import sqzc3d as sq
+
+v = sq.read("trial.c3d")
+sq.export_bundle("trial.sqzc3d", v._chunk)   # 也可以传目录路径，例如 "bundle_dir/"
 ```
 
 ## C API

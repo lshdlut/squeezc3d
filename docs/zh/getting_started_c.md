@@ -6,6 +6,14 @@
 2. materialize（内存化）出一个 chunk（`sqzc3d_build_chunks`）。
 3. 直接使用 chunk 数组（固定布局契约）。
 
+30 秒版本：
+
+- `sqzc3d_build_chunks(...)` 会产出连续数组，你可以直接按约定索引。
+- 关心缺失样本时，务必同时使用 `*_valid` masks。
+- 记住 indices 有两套编号体系：source-total 与 chunk-local。
+
+形象化：解码一次，然后把 `chunk` 当成“一组 C 数组 + 元数据”。
+
 ```c
 #include "sqzc3d.h"
 

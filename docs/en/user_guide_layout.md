@@ -1,10 +1,18 @@
-# Data layout (Materialize)
+# Data layout — materialize
 
 This page documents the default array layouts used by `sqzc3d` materialization.
 
 The goal is predictable shape and memory order for downstream code.
 
-## Points (trajectories)
+TL;DR:
+
+- Points: `(T, P, 3)` plus a matching `(T, P)` `points_valid`.
+- Analogs: `(C, N)` plus a matching `(C, N)` `analogs_valid` by default.
+- `layout="tcs"` is a view helper; `layout="CN"` is contiguous storage.
+
+Mental model: `sqzc3d` returns “tables”, and it tells you the table shape and memory order up front.
+
+## Points — trajectories
 
 Materialized points contract:
 
@@ -34,7 +42,7 @@ In the C API, `sqzc3d_points_view_frames(...)` exposes the same memory as a view
 - `view.points_xyz`: `(T, P, 3)` frame-major, contiguous
 - `view.points_valid`: `(T, P)` contiguous
 
-## Analogs (channels)
+## Analogs — channels
 
 Materialized analogs are channel-major by default:
 
@@ -67,4 +75,3 @@ Notes:
 - Non-contiguous selections require `copy=True`.
 
 This makes performance costs explicit and keeps memory behavior predictable.
-

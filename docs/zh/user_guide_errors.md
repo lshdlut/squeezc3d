@@ -2,6 +2,14 @@
 
 本页描述 Python 与 C API 的错误报告方式。
 
+30 秒版本：
+
+- Python 失败会抛 `RuntimeError`。
+- C API 通常返回 `sqzc3d_STATUS_*`；用 `sqzc3d_last_error(...)` 拿到可读错误信息。
+- 如果某个 build 缺失能力，可能会遇到 `sqzc3d_STATUS_NOT_IMPLEMENTED`。
+
+形象化：把错误当成“可行动的提示”，不要把失败当作“默默降级成功”。
+
 ## Python
 
 Python bindings 在失败时会抛出 `RuntimeError`。

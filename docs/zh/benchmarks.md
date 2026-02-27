@@ -16,8 +16,9 @@
 
 说明：
 
-- `bench_sqzc3d` 以及 Python 的 `sqzc3d` bench 会关闭 analog 读取，以聚焦于点数据 materialize + 访问模式。
-- `ezc3d` 会 materialize 完整的内存结构（如存在，也包括 analogs）。
+- `bench_sqzc3d` 与 `bench_ezc3d` 都会完整解析一个 C3D（点数据 + 如存在则包含 analogs）。
+  访问模式 microbench 只针对点数组；analog 数组会被加载，但不会被访问。
+  本页展示的示例文件不含 analog 通道，因此 analog materialization 不影响这里的数值。
 
 ## 复现
 
@@ -38,7 +39,7 @@ python samples/bench/bench_python.py <file.c3d> --lib ezc3d  --repeat <repeat>
 
 ## Materialize 模式
 
-### C++（原生）
+### C++ — 原生
 
 PFERD（117.96 MB, frames=55,844, points=132, repeat=1）：
 
@@ -78,7 +79,7 @@ PFERD（117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3),
 | `window_copy_us_T256_kall` | 3.983 | 42.041 | 10.6x |
 | `peak_rss_mb` | 44.789 | 130.855 | 2.9x |
 
-## Streaming 模式（仅 sqzc3d，低内存）
+## Streaming 模式 — 仅 sqzc3d，低内存
 
 示例（PFERD, repeat=1）：
 
@@ -88,4 +89,3 @@ PFERD（117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3),
 | `peak_rss_delta_mb` | 2.762 |
 | `read_window_ms_T256_kall` | 0.532 |
 | `read_window_ms_T256_k32` | 0.889 |
-

@@ -3,6 +3,13 @@
 `sqzc3d` supports two access models. Both aim for consistent semantics (layout/validity/units).
 The difference is resource usage and how data is delivered.
 
+TL;DR:
+
+- Materialize: read once and get arrays. This is the default you probably want.
+- Streaming: keep the file open and read into your buffers on demand. Use this for tight memory or special I/O.
+
+Mental model: materialize is “load the spreadsheet”, streaming is “read rows on demand”.
+
 ## Materialize: one-shot `Chunk` in memory
 
 Materialize means:
@@ -42,4 +49,3 @@ Typical use cases (more about constraints than convenience):
 Units:
 
 - By default, streaming returns raw point units (see Units). Downstream code can request explicit scaling.
-

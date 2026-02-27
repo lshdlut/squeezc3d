@@ -2,7 +2,15 @@
 
 本页定义 Python 与 C 中的选择器语义。
 
-## Python（easy 层）
+30 秒版本：
+
+- `None` 表示“全选”，`[]` 表示“空选”。
+- 按 labels 选择会**保序**（你传入什么顺序，就按什么顺序返回）。
+- indices 有“编号体系”的问题：先确认你用的是哪一种 index space。
+
+形象化：labels 像“姓名”，indices 像“工号”；更重要的是别把不同部门的工号体系混着用。
+
+## Python easy 层
 
 Easy surface 是 labels-only（不暴露 indices）。
 
@@ -20,7 +28,7 @@ v = sq.read("trial.c3d", points=[])          # empty selection
 - `[]` 表示空选择。
 - `str` 或 `sequence[str]` 表示按 label 选择。
 
-## Python（core 层）
+## Python core 层
 
 Core surface 支持 indices 或 labels：
 
@@ -35,7 +43,7 @@ chunk.points(["LANK"])     # labels (chunk-local label table)
 
 - 对非连续选择，必须 `copy=True`。
 
-## C API（`sqzc3d_build_opt_t`）
+## C API — `sqzc3d_build_opt_t`
 
 C materialize API 会在构建 chunk 时对 points/analogs 做选择（也就是“在 materialize 阶段做过滤”）。
 
@@ -49,7 +57,7 @@ Point selection：
 
 - `*_sel_count == 0` 是合法的空选择（不是错误）。
 
-## 索引空间（Index spaces）
+## 索引空间 — Index spaces
 
 points 存在两个 index space：
 

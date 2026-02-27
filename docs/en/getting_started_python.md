@@ -6,7 +6,13 @@
 pip install sqzc3d
 ```
 
-## Recommended: Easy (`read -> View`)
+## Recommended: Easy — `read -> View`
+
+TL;DR:
+
+- Use `sqzc3d.read(...)` when you want arrays fast.
+- Select by labels, and treat `*_valid` as the source of truth.
+- If you need full control, jump to Core (`Decoder -> Chunk`) below.
 
 ```python
 import sqzc3d as sq
@@ -54,7 +60,7 @@ Advanced escape hatch:
 
 - `View._chunk` exposes the underlying `Chunk` (indices/masks/etc are considered advanced).
 
-## Advanced: Core (`Decoder -> Chunk`)
+## Advanced: Core — `Decoder -> Chunk`
 
 ```python
 import sqzc3d
@@ -72,4 +78,3 @@ Notes:
 
 - `[]` is a valid empty selector and returns empty arrays (not an error).
 - Non-contiguous selection requires `copy=True` (the API avoids implicit gathers/copies).
-

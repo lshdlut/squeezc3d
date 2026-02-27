@@ -2,6 +2,14 @@
 
 This page describes how errors are reported in Python and the C API.
 
+TL;DR:
+
+- Python raises `RuntimeError` on failures.
+- C APIs return a `sqzc3d_STATUS_*` code; use `sqzc3d_last_error(...)` for a human message.
+- If a build lacks a capability, you may see `sqzc3d_STATUS_NOT_IMPLEMENTED`.
+
+Mental model: treat errors as “actionable messages”, not silent fallbacks.
+
 ## Python
 
 Python bindings raise `RuntimeError` on failures.

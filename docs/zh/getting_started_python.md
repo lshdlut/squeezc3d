@@ -6,7 +6,13 @@
 pip install sqzc3d
 ```
 
-## 推荐：Easy（`read -> View`）
+## 推荐：Easy — `read -> View`
+
+30 秒版本：
+
+- 想快速拿到数组 → 直接用 `sqzc3d.read(...)`。
+- 按 labels 选择，`*_valid` 当成唯一可信来源。
+- 需要更精细控制时再下探到 Core（`Decoder -> Chunk`）。
 
 ```python
 import sqzc3d as sq
@@ -54,7 +60,7 @@ Python 选择器语义：
 
 - `View._chunk` 暴露底层 `Chunk`（indices/masks 等属于高级功能，不主推但可用）。
 
-## 进阶：Core（`Decoder -> Chunk`）
+## 进阶：Core — `Decoder -> Chunk`
 
 ```python
 import sqzc3d

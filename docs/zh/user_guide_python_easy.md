@@ -1,4 +1,12 @@
-# Python Easy 接口（`read` / `View`）
+# Python Easy 接口 — `read` / `View`
+
+30 秒版本：
+
+- 你只想“读出来就是数组” → 用 Easy 层。
+- 把 `View` 当成“数组 + 当前选择状态（labels/type-groups）”。
+- 需要更精细控制时，再下探到 `View._chunk`（Core `Chunk`）。
+
+形象化：`View` 像一个小控制台，你先改选择器，再读取对应的两张表。
 
 这层是给“直接用数据做分析/仿真”的用户准备的。你不需要先理解 chunk/query/recipe 的内部结构，只要记住：
 
@@ -8,7 +16,7 @@
 
 如果你已经有 indices、或者需要更精细的 layout/view/copy 控制，请直接使用 Core API（`Decoder` / `Chunk`）。
 
-## 读入：`read(...)`
+## 读入：`read`
 
 ```python
 import sqzc3d as sq
@@ -77,7 +85,9 @@ emg = v.analog["EMG1"]             # (N,) 或 (T, S)（取决于 analog_layout�
 emg_valid = v.analog_valid["EMG1"]
 ```
 
-## Type-groups（可选）
+## Type-groups
+
+可选。
 
 如果 chunk 上有 type-groups，可将其作为额外的 AND-filter：
 
@@ -98,7 +108,9 @@ pts = v.points
 
 - `type_groups_strict=True` 会在缺失/无效时直接抛错
 
-## Recipe（可选）
+## Recipe
+
+可选。
 
 `Recipe` 是可复用的配置对象，可作为参数传入 `read(...)`（适合把“选择规则”抽出来复用）。
 
@@ -115,7 +127,9 @@ v = sq.read("trial.c3d", recipe=rcp)
 print(v.describe())
 ```
 
-## 进阶：进入 Core 层（不主推，但随时可用）
+## 进阶：进入 Core 层
+
+不主推，但随时可用。
 
 Easy 层会把高级能力保留为“可用但不默认”的形式。
 

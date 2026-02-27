@@ -1,4 +1,12 @@
-# Python Easy API (`read` / `View`)
+# Python Easy API — `read` / `View`
+
+TL;DR:
+
+- Use this layer when you want “just give me arrays”.
+- Think of `View` as “arrays + current selection state”.
+- When you need more control, drop to `View._chunk` (Core `Chunk`).
+
+Mental model: `View` is a small dashboard; you change selectors, then read tables.
 
 This layer is for "give me arrays for analysis/simulation".
 You do not need to learn chunk/query/recipe internals. Remember:
@@ -9,7 +17,7 @@ You do not need to learn chunk/query/recipe internals. Remember:
 
 If you already have indices, or you need precise layout/view/copy control, use the Core API (`Decoder` / `Chunk`).
 
-## Load: `read(...)`
+## Load: `read`
 
 ```python
 import sqzc3d as sq
@@ -78,7 +86,9 @@ emg = v.analog["EMG1"]             # (N,) or (T, S) depending on analog_layout
 emg_valid = v.analog_valid["EMG1"]
 ```
 
-## Type-groups (optional)
+## Type-groups
+
+Optional.
 
 If type-groups exist on the chunk, they can be applied as an extra AND-filter:
 
@@ -99,7 +109,9 @@ Strict mode:
 
 - `type_groups_strict=True` makes missing/invalid cases raise.
 
-## Recipe (optional)
+## Recipe
+
+Optional.
 
 A `Recipe` is a reusable config object that can be passed into `read(...)`:
 
@@ -116,7 +128,9 @@ v = sq.read("trial.c3d", recipe=rcp)
 print(v.describe())
 ```
 
-## Advanced: drop to Core (always available)
+## Advanced: drop to Core
+
+Always available.
 
 `View._chunk` exposes the underlying Core `Chunk`:
 
@@ -124,4 +138,3 @@ print(v.describe())
 chunk = v._chunk
 pts, valid = chunk.points(None, copy=False)
 ```
-
