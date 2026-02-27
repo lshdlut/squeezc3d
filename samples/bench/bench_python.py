@@ -136,9 +136,9 @@ def _bench_sqzc3d(file_path: Path, repeat: int) -> dict:
         dec = sqzc3d.Decoder(str(file_path))
         try:
             t0 = time.perf_counter()
-            # Match C++ benches: points-only, materialize.
-            # In Python, `analogs=[]` disables analog reads.
-            chunk = dec.read(frame_count=-1, points=None, analogs=[], analog_range=None)
+            # Materialize with defaults (points=ALL, analogs=ALL).
+            # Access-pattern microbench below focuses on point arrays.
+            chunk = dec.read(frame_count=-1, points=None, analogs=None, analog_range=None)
             t1 = time.perf_counter()
             sum_load += _elapsed_ms(t0, t1)
         finally:

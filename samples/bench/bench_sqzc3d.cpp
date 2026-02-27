@@ -98,7 +98,6 @@ static LoadResult load_sqzc3d_c3d_materialize(const std::string& input) {
 
   sqzc3d_build_opt_t build_opt;
   sqzc3d_default_build_opt(&build_opt);
-  build_opt.analog_enable = sqzc3d_ANALOG_EN_OFF;
   build_opt.frame_range = {0, -1};
   build_opt.point_sel_mode = sqzc3d_POINT_SEL_ALL;
   build_opt.point_sel = nullptr;
