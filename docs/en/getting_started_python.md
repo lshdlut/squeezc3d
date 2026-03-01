@@ -6,13 +6,13 @@
 pip install sqzc3d
 ```
 
-## Recommended: Easy — `read -> View`
+## Easy: `read -> View`
 
 Quick summary:
 
 - Use `sqzc3d.read(...)` when you want arrays fast.
 - Select by labels, and treat `*_valid` as the source of truth.
-- If you need full control, jump to Core (`Decoder -> Chunk`) below.
+- If you need full control, jump to Core below.
 
 ```python
 import sqzc3d as sq
@@ -60,7 +60,7 @@ Advanced escape hatch:
 
 - `View._chunk` exposes the underlying `Chunk` (indices/masks/etc are considered advanced).
 
-## Advanced: Core — `Decoder -> Chunk`
+## Core: `Decoder -> Chunk`
 
 ```python
 import sqzc3d

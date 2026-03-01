@@ -31,8 +31,8 @@ Common parameters:
 
 - `start_frame`, `frame_count`: frame window selection
 - `points`, `analogs`: label selectors
-- `analog_range`: sample-range selection (advanced)
-- `label_norm`: label normalization mode
+- `analog_range`: analog window selection (advanced, in the same frame index space as `start_frame`)
+- `label_norm`: label normalization mode (ambiguous matches raise)
 - `recipe`: reusable filtering recipe (currently mainly type-groups)
 
 Selector semantics:
@@ -40,6 +40,24 @@ Selector semantics:
 - `None` means default (ALL)
 - `[]` means empty selection
 - `str` or `sequence[str]` means label selection
+
+## Windows and time axis
+
+`View.meta` includes time-axis metadata (when available):
+
+- `source_first_frame`, `source_last_frame`: absolute frame indices from the original C3D
+- `point_rate_hz`, `analog_rate_hz`: sampling rates
+- `frame_start`, `frame_start_abs`: point window origin (relative / absolute)
+- `analog_frame_start`, `analog_frame_start_abs`: analog window origin (relative / absolute)
+
+If you want analogs aligned with the point window, pass `analog_range=(start_frame, frame_count)` explicitly:
+
+```python
+import sqzc3d as sq
+
+v = sq.read("trial.c3d", start_frame=100, frame_count=200, analog_range=(100, 200))
+print(v.meta["frame_start_abs"], v.meta["analog_frame_start_abs"])
+```
 
 ## Selection state: mutate `View` fields
 

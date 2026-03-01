@@ -4,6 +4,8 @@ This page contains benchmark methodology and representative results.
 
 Definition: `speedup_x = ezc3d / sqzc3d` (higher is better for `sqzc3d`, including the memory ratio).
 
+Note: these numbers are snapshots. Re-run the commands below to get results for your machine and your versions.
+
 ## What is measured
 
 - **Chunk materialize**: build a compact, contiguous `double` buffer `[frame][point][3]` (+ valid mask).
@@ -39,7 +41,7 @@ On multi-config generators (Visual Studio), binaries may be under `<build_dir>/R
 
 ## Materialize mode
 
-### C++ — native
+### C++
 
 PFERD (117.96 MB, frames=55,844, points=132, repeat=1):
 
@@ -61,7 +63,7 @@ Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=10):
 
 ### Python
 
-PFERD (117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3), `ezc3d` v1.6.0):
+PFERD (117.96 MB, frames=55,844, points=132, repeat=1):
 
 | Metric | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |
@@ -70,7 +72,7 @@ PFERD (117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3), 
 | `window_copy_us_T256_kall` | 13.070 | 159.610 | 12.2x |
 | `peak_rss_mb` | 209.617 | 1373.492 | 6.6x |
 
-Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.2 (ABI 3), `ezc3d` v1.6.0):
+Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5):
 
 | Metric | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |
@@ -79,7 +81,9 @@ Small (DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.2 (ABI 3),
 | `window_copy_us_T256_kall` | 3.983 | 42.041 | 10.6x |
 | `peak_rss_mb` | 44.789 | 130.855 | 2.9x |
 
-## Streaming mode — sqzc3d-only, low memory
+## Streaming mode
+
+This is `sqzc3d`-only and optimized for low memory.
 
 Example (PFERD, repeat=1):
 

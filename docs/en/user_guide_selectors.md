@@ -43,7 +43,18 @@ Notes:
 
 - For non-contiguous selections, `copy=True` is required.
 
-## C API — `sqzc3d_build_opt_t`
+## Label normalization
+
+`label_norm` can normalize labels (trim / case-fold / whitespace) before matching.
+
+If normalization makes a label ambiguous (multiple source labels normalize to the same key), `sqzc3d` fails fast
+instead of picking an arbitrary match.
+
+In that case, use exact labels (`label_norm=EXACT`), or drop to indices (Core API) to disambiguate.
+
+## C API
+
+The main struct is `sqzc3d_build_opt_t`.
 
 The C materialize API selects points/analogs during chunk construction.
 

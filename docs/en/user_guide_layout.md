@@ -12,7 +12,9 @@ Quick summary:
 
 Mental model: `sqzc3d` returns “tables”, and it tells you the table shape and memory order up front.
 
-## Points — trajectories
+## Points
+
+Points are marker trajectories.
 
 Materialized points contract:
 
@@ -42,7 +44,9 @@ In the C API, `sqzc3d_points_view_frames(...)` exposes the same memory as a view
 - `view.points_xyz`: `(T, P, 3)` frame-major, contiguous
 - `view.points_valid`: `(T, P)` contiguous
 
-## Analogs — channels
+## Analogs
+
+Analogs are time-series channels (e.g. ground reaction force, EMG).
 
 Materialized analogs are channel-major by default:
 

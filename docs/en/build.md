@@ -6,13 +6,15 @@ Quick summary:
 - If you need C/C++ or want to build samples/benchmarks, build from source via CMake.
 - Optional features are controlled by CMake options like `SQZC3D_WITH_EZC3D`.
 
-## Python — pip
+## Python
+
+Install via pip:
 
 ```bash
 pip install sqzc3d
 ```
 
-## C/C++ — from source
+## C/C++ from source
 
 ```bash
 cmake -S . -B build
@@ -39,14 +41,14 @@ If you want the CLI samples / benchmarks, enable:
   Values: `ON|OFF`. Default: `OFF`.  
   Build CLI samples and benchmarks.
 
-## CMake usage — dependency
+## Use as a dependency
 
 ```cmake
 add_subdirectory(path/to/squeezc3d)
 target_link_libraries(your_target PRIVATE sqzc3d)
 ```
 
-## Runtime capabilities — optional
+## Runtime capabilities
 
 You can query runtime capability bits via:
 

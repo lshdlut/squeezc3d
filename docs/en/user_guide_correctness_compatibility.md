@@ -151,6 +151,7 @@ The full spec is in `samples/verify/STRESS_PLAN.md`. The runner is `python sampl
 
 - Preset: you load a window (`start_frame`, `frame_count`) instead of the full trial.
 - Contract: window read == full materialize then slice, including edge cases (`frame_count=0`, `-1`).
+- Contract: `meta` records the time-axis origin of the returned window (`frame_start`, `analog_frame_start`, and absolute variants).
 - Stress: `python samples/verify/verify.py stress --c3d <dir> --scenarios S04`
 - Result: PASS means "window reads are a safe optimization" (see also `user_guide_materialize_vs_streaming.md`).
 - Mental model: decoding only a segment of a video should not change the frames you did decode.
@@ -167,6 +168,7 @@ The full spec is in `samples/verify/STRESS_PLAN.md`. The runner is `python sampl
 
 - Preset: labels with whitespace / case variations.
 - Contract: `label_norm` policies behave as documented and are stable.
+- Contract: if normalization makes a label ambiguous, `sqzc3d` raises instead of picking an arbitrary match.
 - Stress: `python samples/verify/verify.py stress --c3d <dir> --scenarios S06`
 - Result: PASS means "label matching rules are explicit and testable".
 - Mental model: normalize “names” first (trim/case), then match, so users aren’t surprised by trivial formatting.
