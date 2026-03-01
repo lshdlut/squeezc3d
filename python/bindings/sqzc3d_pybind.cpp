@@ -668,6 +668,20 @@ struct PyChunk {
     out["point_scale"] = chunk->point_scale;
     out["header_scale"] = chunk->header_scale;
     out["reason"] = chunk->reason ? chunk->reason : "";
+
+    sqzc3d_time_axis_t axis{};
+    sqzc3d_default_time_axis(&axis);
+    const int st_axis = sqzc3d_chunk_time_axis(chunk, &axis);
+    if (st_axis == sqzc3d_STATUS_SUCCESS) {
+      out["source_first_frame"] = axis.source_first_frame;
+      out["source_last_frame"] = axis.source_last_frame;
+      out["point_rate_hz"] = axis.point_rate_hz;
+      out["analog_rate_hz"] = axis.analog_rate_hz;
+      out["frame_start"] = axis.frame_start;
+      out["frame_start_abs"] = axis.source_first_frame + axis.frame_start;
+      out["analog_frame_start"] = axis.analog_frame_start;
+      out["analog_frame_start_abs"] = axis.source_first_frame + axis.analog_frame_start;
+    }
     py::list point_labels;
     if (chunk->point_labels) {
       for (int i = 0; i < chunk->n_points; ++i) {
@@ -733,6 +747,9 @@ py::dict EzcParameterToDict(const ParameterT& parameter) {
   out["description"] = parameter.description();
   out["locked"] = parameter.isLocked();
   out["type"] = static_cast<int>(parameter.type());
+  py::list dims;
+  for (const auto d : parameter.dimension()) dims.append(static_cast<long long>(d));
+  out["dimensions"] = std::move(dims);
   if (parameter.type() == ezc3d::DATA_TYPE::CHAR) {
     py::list values;
     for (const auto& v : parameter.valuesAsString()) values.append(v);
@@ -743,7 +760,7 @@ py::dict EzcParameterToDict(const ParameterT& parameter) {
     out["values"] = values;
   } else {
     py::list values;
-    for (const auto v : parameter.valuesAsInt()) values.append(v);
+    for (const auto v : parameter.valuesConvertedAsInt()) values.append(v);
     out["values"] = values;
   }
   return out;
@@ -792,10 +809,28 @@ py::dict ParseMetaTreeFromSource(const std::string& path, const std::int64_t poi
 
 py::dict PyChunk::meta_tree() const {
   py::dict out;
-  if (!holder_ || holder_->source_path.empty()) {
+  if (!holder_ || !holder_->chunk) {
     return out;
   }
+
+  const char* meta_tree_json = nullptr;
+  int meta_tree_nbytes = 0;
+  const int st = sqzc3d_chunk_meta_tree_json(holder_->chunk, &meta_tree_json, &meta_tree_nbytes);
+  if (st == sqzc3d_STATUS_SUCCESS && meta_tree_json && meta_tree_nbytes > 0) {
+    try {
+      const py::object obj = py::module_::import("json").attr("loads")(py::str(meta_tree_json));
+      if (py::isinstance<py::dict>(obj)) {
+        return obj.cast<py::dict>();
+      }
+      throw std::runtime_error("meta_tree_json is not a dict");
+    } catch (const std::exception& e) {
+      throw std::runtime_error(std::string("failed to parse meta_tree_json: ") + e.what());
+    }
+  }
 #if sqzc3d_WITH_EZC3D
+  if (holder_->source_path.empty()) {
+    return out;
+  }
   const std::string ext = std::filesystem::path(holder_->source_path).extension().string();
   std::string ext_lower;
   ext_lower.reserve(ext.size());
