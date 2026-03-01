@@ -200,6 +200,20 @@ typedef struct sqzc3d_bundle_load_opt_t_ {
   int reserved;
 } sqzc3d_bundle_load_opt_t;
 
+typedef struct sqzc3d_time_axis_t_ {
+  int struct_size;
+  // Absolute frame indices in the original C3D time axis (inclusive).
+  // When available, source_last_frame should equal source_first_frame + source_n_frames - 1.
+  int source_first_frame;
+  int source_last_frame;
+  // Sampling rates (Hz).
+  double point_rate_hz;
+  double analog_rate_hz;
+  // Window origins in the source frame index space (0-based, relative to source frame 0).
+  int frame_start;
+  int analog_frame_start;
+} sqzc3d_time_axis_t;
+
 typedef struct sqzc3d_points_view_t_ {
   const sqzc3d_num_t* points_xyz;
   const unsigned char* points_valid;
@@ -266,6 +280,21 @@ sqzc3d_API int sqzc3d_chunk_point_indices_total(
     const sqzc3d_chunk_t* chunk,
     const int** out_point_indices_total,
     int* out_n_points);
+
+// Optional serialized parameter tree (meta_tree) as a UTF-8 JSON string.
+// If unavailable (e.g. legacy bundles or builds without it), returns sqzc3d_STATUS_NOT_IMPLEMENTED.
+// On success, out_json points to a null-terminated string owned by the chunk (valid until sqzc3d_free_chunk).
+sqzc3d_API int sqzc3d_chunk_meta_tree_json(
+    const sqzc3d_chunk_t* chunk,
+    const char** out_json,
+    int* out_nbytes);
+
+// Optional time-axis metadata for the materialized chunk.
+// If unavailable (e.g. legacy bundles), returns sqzc3d_STATUS_NOT_IMPLEMENTED.
+sqzc3d_API void sqzc3d_default_time_axis(sqzc3d_time_axis_t* out_axis);
+sqzc3d_API int sqzc3d_chunk_time_axis(
+    const sqzc3d_chunk_t* chunk,
+    sqzc3d_time_axis_t* out_axis);
 
 sqzc3d_API int sqzc3d_point_indices_for_labels(
     const sqzc3d_chunk_t* chunk,

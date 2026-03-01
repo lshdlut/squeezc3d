@@ -42,6 +42,10 @@ struct C3dStreamReader;
 
 struct C3dStreamMeta {
   int n_frames = 0;
+  // Absolute frame indices from the source header (inclusive). `last_frame` is normalized to
+  // match `n_frames` when possible (i.e. last_frame = first_frame + n_frames - 1).
+  int first_frame = 0;
+  int last_frame = -1;
   int n_points = 0;
   int n_analogs = 0;
   int n_analog_by_frame = 0;
@@ -54,6 +58,11 @@ struct C3dStreamMeta {
   double analog_scale = 1.0;
   double analog_scale_default = 1.0;
   double analog_general_factor = 1.0;
+  // Sampling rates (Hz).
+  // - point_rate_hz: point frame rate (C3D header "frameRate").
+  // - analog_rate_hz: derived analog sampling rate, typically point_rate_hz * n_analog_by_frame.
+  double point_rate_hz = 0.0;
+  double analog_rate_hz = 0.0;
   std::vector<int> analog_offsets;
   std::vector<double> analog_scales;
   // Point length unit conversion:

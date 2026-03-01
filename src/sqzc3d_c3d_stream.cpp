@@ -874,15 +874,15 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     const bool all_of_file_frames =
         (c3d->header().nbFrames() == 0xFFFF && !has_rotational);
     int frames = 0;
+    const auto header_first_frame = c3d->header().firstFrame();
     {
-      const auto first_frame = c3d->header().firstFrame();
       const auto last_frame = c3d->header().lastFrame();
       std::size_t header_frames = 0;
       if (!all_of_file_frames) {
-        if (last_frame > first_frame || (first_frame == 0 && last_frame == 0)) {
-          header_frames = last_frame - first_frame + 1;
-        } else if (last_frame >= first_frame) {
-          header_frames = last_frame - first_frame + 1;
+        if (last_frame > header_first_frame || (header_first_frame == 0 && last_frame == 0)) {
+          header_frames = last_frame - header_first_frame + 1;
+        } else if (last_frame >= header_first_frame) {
+          header_frames = last_frame - header_first_frame + 1;
         }
         if (header_frames == 0) {
           header_frames = c3d->header().nbFrames();
@@ -890,7 +890,7 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       } else {
         // Keep this as a plausible initial value; it will be replaced
         // by file-size-based frame count below.
-        header_frames = last_frame - first_frame + 1;
+        header_frames = last_frame - header_first_frame + 1;
       }
       if (header_frames > std::numeric_limits<int>::max()) {
         return sqzc3d_STATUS_INVALID_ARGUMENT;
@@ -936,6 +936,31 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
     tmp.n_frames = frames;
+    if (header_first_frame > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+    tmp.first_frame = static_cast<int>(header_first_frame);
+    if (tmp.n_frames <= 0) {
+      tmp.last_frame = tmp.first_frame - 1;
+    } else {
+      const auto last = static_cast<long long>(tmp.first_frame) + static_cast<long long>(tmp.n_frames) - 1LL;
+      if (last < std::numeric_limits<int>::min() || last > std::numeric_limits<int>::max()) {
+        return sqzc3d_STATUS_INVALID_ARGUMENT;
+      }
+      tmp.last_frame = static_cast<int>(last);
+    }
+
+    {
+      const double rate = static_cast<double>(c3d->header().frameRate());
+      if (std::isfinite(rate) && rate > 0.0) {
+        tmp.point_rate_hz = rate;
+        const double a_rate = rate * static_cast<double>(tmp.n_analog_by_frame);
+        tmp.analog_rate_hz = (std::isfinite(a_rate) && a_rate >= 0.0) ? a_rate : 0.0;
+      } else {
+        tmp.point_rate_hz = 0.0;
+        tmp.analog_rate_hz = 0.0;
+      }
+    }
 
     // Normalize POINT:FRAMES and re-run updateHeader() to keep header/params consistent with
     // our effective frame count (closest equivalent to ezc3d::c3d::updateParameters()).
@@ -1038,11 +1063,21 @@ sqzc3d_status sqzc3d_c3d_stream_point_indices_for_labels(
     const char* want = labels[i];
     if (!want) return sqzc3d_STATUS_INVALID_ARGUMENT;
     const auto target = normalize_label(want, norm_mode);
+    int match_index = -1;
+    int match_count = 0;
     for (int j = 0; j < static_cast<int>(haystack.size()); ++j) {
       if (normalize_label(haystack[static_cast<std::size_t>(j)], norm_mode) == target) {
-        out_indices[i] = j;
-        break;
+        if (match_count == 0) {
+          match_index = j;
+        }
+        ++match_count;
+        if (match_count > 1) break;
       }
+    }
+    if (match_count == 1) {
+      out_indices[i] = match_index;
+    } else if (match_count > 1) {
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
     }
   }
   return sqzc3d_STATUS_SUCCESS;
