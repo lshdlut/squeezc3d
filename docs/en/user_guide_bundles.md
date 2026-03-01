@@ -5,6 +5,7 @@ Quick summary:
 - A bundle is a cache format for fast reloads.
 - Prefer the single-file bundle `*.sqzc3d`.
 - `sqzc3d.read(...)` auto-detects bundles; strict vs best-effort is configurable.
+- Bundles preserve key metadata (including `meta_tree`), so you can still read parameters like FORCE_PLATFORM from a bundle.
 
 Mental model: “pack the decoded tables into a sealed box, then reopen the box next time”.
 

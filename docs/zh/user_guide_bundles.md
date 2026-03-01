@@ -5,6 +5,7 @@
 - bundle 是 `sqzc3d` 的缓存格式，用来“下次更快加载”。
 - 推荐使用单文件 bundle：`*.sqzc3d`。
 - `sqzc3d.read(...)` 会自动识别 bundle；strict 与 best-effort 行为可选。
+- bundle 会保存关键元数据（包括 `meta_tree` 参数树），因此你用 bundle 也能读取像 FORCE_PLATFORM 这类参数。
 
 形象化：把“解码后的两张表”装进一个缓存箱，下次直接开箱，不必再从头解码。
 

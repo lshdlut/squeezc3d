@@ -39,7 +39,7 @@ No need to memorize:
 | window read | reading only a slice of frames (like decoding only a segment of a video). |
 | `*_valid` (validity mask) | a per-sample “is this sample usable?” flag. |
 | units / scaling | length unit metadata (`POINT:UNITS`) and whether numbers get converted. |
-| `meta_tree` | the C3D parameter tree (think “settings/metadata dictionary”). |
+| `meta_tree` | the C3D parameter tree (think “settings/metadata dictionary”; matrix params include `dimensions` so you can reshape safely). |
 | bundle | a cache artifact (`.sqzc3d`) you can export and load back. |
 | stress | a scenario-based contract “health report” (PASS/WARN/FAIL + optional JSON report). |
 | `--strict-*` | turn some “report-only differences” into hard gates (mismatch becomes FAIL). |
@@ -66,7 +66,7 @@ Covered (publicly documented contracts):
 - Validity masks (`*_valid`; i.e., “which samples are usable”) and missing samples.
 - Units metadata behavior (`POINT:UNITS`) without surprising implicit scaling.
 - Type-groups (marker-set semantics; i.e., “marker-set conventions”).
-- `meta_tree` (EZ parameter tree / metadata dictionary) when built with `SQZC3D_WITH_EZC3D=ON`.
+- `meta_tree` (EZ parameter tree / metadata dictionary): readable from C3D when built with `SQZC3D_WITH_EZC3D=ON`, and preserved in bundles.
 - Bundle persistence (`export_bundle` / `load_bundle`; cache roundtrip, strict vs best-effort).
 
 Not covered (by design):
@@ -202,7 +202,7 @@ See `user_guide_valid.md`.
 ### S10 — `meta_tree`
 
 - Preset: parameters that are matrices (corners/origin/etc).
-- Contract: parameter tree structure and value ordering are stable and comparable to `ezc3d`.
+- Contract: structure is stable, value ordering is stable, and `dimensions` is present so callers can reshape reliably.
 - Stress: `python samples/verify/verify.py stress --c3d <dir> --scenarios S10`
 - Result: PASS means "no subtle param-tree drift" (requires `SQZC3D_WITH_EZC3D=ON`).
 - Mental model: a settings menu can contain matrices; row/column ordering matters even if values “look similar”.
@@ -210,7 +210,7 @@ See `user_guide_valid.md`.
 ### S11 — Bundles roundtrip
 
 - Preset: cache a chunk as a bundle (`.sqzc3d`) and reload it.
-- Contract: export → load roundtrip preserves meta + payload; strict mode rejects incompatible bundles.
+- Contract: export → load roundtrip preserves meta + payload + `meta_tree`; strict mode rejects incompatible bundles.
 - Stress: `python samples/verify/verify.py stress --c3d <dir> --scenarios S11`
 - Result: PASS means "bundle is safe for caching". If Python lacks `export_bundle`, the scenario degrades to WARN.
 - Mental model: bundle is a sealed cache box; strict mode is “verify the seal” before trusting the contents.
@@ -220,7 +220,7 @@ See `user_guide_bundles.md`.
 ### S12 — `open_memory`
 
 - Preset: load from bytes (e.g. network / archive / WASM FS).
-- Contract: `open_memory` behaves like reading the same file path.
+- Contract: `open_memory` behaves like reading the same file path (including `meta_tree`).
 - Stress: `python samples/verify/verify.py stress --c3d <dir> --scenarios S12`
 - Result: PASS means "bytes-in == file-in".
 - Mental model: reading the same content from disk vs from bytes should produce the same tables.

@@ -55,6 +55,8 @@ Notes:
 | `sqzc3d_free_chunk` | Release chunk resources. |
 | `sqzc3d_chunk_num_frames` / `sqzc3d_chunk_num_points` / `sqzc3d_chunk_num_scalar` | Access chunk shape. |
 | `sqzc3d_chunk_point_indices_total` | Optional chunk-local -> source-total point index mapping (when available). |
+| `sqzc3d_chunk_meta_tree_json` | Optional `meta_tree` snapshot as UTF-8 JSON (when available). |
+| `sqzc3d_chunk_time_axis` | Optional time-axis metadata (source first/last frame, rates, window origins). |
 | `sqzc3d_point_indices_for_labels` / `sqzc3d_analog_indices_for_labels` | Map labels to indices. |
 | `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` | Build point views by frame or index list. |
 | `sqzc3d_analogs_view_samples` / `sqzc3d_analogs_view_channels` | Build analog views by sample range or channel list. |
@@ -183,7 +185,7 @@ Selector semantics (Python):
   - `view.analog["EMG1"]` / `view.analog_valid["EMG1"]`
 - Metadata:
   - `view.meta` (flat dict)
-  - `view.meta_tree` (EZ parameter tree; only when source is a `.c3d` file path and `SQZC3D_WITH_EZC3D=ON`)
+  - `view.meta_tree` (EZ parameter tree when available; preserved in bundles; `SQZC3D_WITH_EZC3D=ON` is required to extract it from C3D)
 - Advanced escape hatch:
   - `view._chunk` (pybind `Chunk`; indices/masks/etc are considered advanced)
 
@@ -205,7 +207,7 @@ Notes:
 - `chunk.analogs(selector=None, layout="CN", copy=True) -> (values, valid)`
   - `layout="tcs"` returns a non-contiguous frame-major view `(T, C, S)` over channel-major storage.
 - `chunk.meta` (dict)
-- `chunk.meta_tree` (dict, full parsed EZ metadata tree when source file path is available)
+- `chunk.meta_tree` (dict, parsed EZ parameter tree when available; preserved in bundles; available for `open_memory` as well)
 - `chunk.source_path` (read-only)
 
 Python payload semantics:

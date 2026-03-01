@@ -57,6 +57,8 @@
 | `sqzc3d_free_chunk` | 释放 chunk 资源。 |
 | `sqzc3d_chunk_num_frames` / `sqzc3d_chunk_num_points` / `sqzc3d_chunk_num_scalar` | 获取 chunk shape。 |
 | `sqzc3d_chunk_point_indices_total` | 可选的 chunk-local -> source-total point index 映射（若可用）。 |
+| `sqzc3d_chunk_meta_tree_json` | 可选的 `meta_tree` 快照（UTF-8 JSON；若可用）。 |
+| `sqzc3d_chunk_time_axis` | 可选的时间轴元数据（源 first/last frame、采样率、窗口起点）。 |
 | `sqzc3d_point_indices_for_labels` / `sqzc3d_analog_indices_for_labels` | labels -> indices 映射。 |
 | `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` | 按 frame 或 index list 构建 points views。 |
 | `sqzc3d_analogs_view_samples` / `sqzc3d_analogs_view_channels` | 按 sample range 或 channel list 构建 analog views。 |
@@ -185,7 +187,7 @@ Python 高层导出：
   - `view.analog["EMG1"]` / `view.analog_valid["EMG1"]`
 - Metadata：
   - `view.meta`（flat dict）
-  - `view.meta_tree`（EZ parameter tree；仅当 source 是 `.c3d` 文件路径且 `SQZC3D_WITH_EZC3D=ON` 时可用）
+  - `view.meta_tree`（EZ parameter tree；若可用；bundle 会保留；从 C3D 提取需要 `SQZC3D_WITH_EZC3D=ON`）
 - Advanced escape hatch：
   - `view._chunk`（pybind `Chunk`；indices/masks 等被视作 advanced）
 
@@ -207,7 +209,7 @@ Notes：
 - `chunk.analogs(selector=None, layout="CN", copy=True) -> (values, valid)`
   - `layout="tcs"` 会返回一个非连续的 frame-major view `(T, C, S)`（底层仍为 channel-major 存储）。
 - `chunk.meta`（dict）
-- `chunk.meta_tree`（dict：当 source file path 可用时，包含完整解析的 EZ metadata tree）
+- `chunk.meta_tree`（dict：若可用；bundle 会保留；`open_memory` 也应可用）
 - `chunk.source_path`（只读）
 
 Python payload 语义：

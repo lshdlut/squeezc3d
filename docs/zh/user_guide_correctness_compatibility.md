@@ -37,7 +37,7 @@
 | window read | 只读一段 frames（像只解码视频的一段，不应改变内容）。 |
 | `*_valid`（validity mask） | 每个样本旁边的“是否可信”贴纸/开关：无效样本不要拿来当真。 |
 | units / scaling | 单位标签（mm/cm/m）以及是否做数值换算（默认倾向不偷偷换算）。 |
-| `meta_tree` | C3D 的参数树（像“设置菜单/元数据字典”）。 |
+| `meta_tree` | C3D 的参数树（像“设置菜单/元数据字典”；矩阵参数会带 `dimensions`，方便还原行列）。 |
 | bundle | `sqzc3d` 的缓存包（把结果打包，下一次直接加载）。 |
 | stress | 按场景跑的一套“契约体检”（输出 PASS/WARN/FAIL，可选 JSON 报告）。 |
 | `--strict-*` | 把某些“默认只报告差异”的项目，升级为硬门槛（不满足就 FAIL）。 |
@@ -59,7 +59,7 @@
 - Validity masks（`*_valid`；也就是“哪些样本可信/不可信”的贴纸）与缺失样本的处理。
 - units 元数据（`POINT:UNITS`；单位标签）与缩放策略（默认不偷偷换算）。
 - type-groups（marker-set 语义；也就是“这一组 markers 属于同一套标记系统/人体模型约定”）。
-- `meta_tree`（EZ 的参数树；像“设置菜单/元数据字典”；仅在 `SQZC3D_WITH_EZC3D=ON` 时）。
+- `meta_tree`（EZ 的参数树；像“设置菜单/元数据字典”；构建启用 `SQZC3D_WITH_EZC3D=ON` 时可从 C3D 读取；并会随 bundle 一起保存）。
 - bundles（`export_bundle` / `load_bundle`；像“缓存包”；strict vs best-effort）。
 
 不覆盖（设计目标之外）：
@@ -194,7 +194,7 @@ python samples/verify/verify.py stress --c3d path/to/c3d_dir --sample 0 --report
 ### S10 — `meta_tree`
 
 - 预设：参数值是矩阵/多维数组（例如 corners/origin 等）。
-- 契约：参数树结构与 value 的顺序稳定，并可与 `ezc3d` 对照。
+- 契约：参数树结构稳定；`values` 的顺序稳定；并提供 `dimensions` 方便还原矩阵形状。
 - Stress：`python samples/verify/verify.py stress --c3d <dir> --scenarios S10`
 - 结果：PASS 表示“参数树不会悄悄漂移”（需要 `SQZC3D_WITH_EZC3D=ON`）。
 - 形象化：设置菜单里有二维表格（矩阵参数），行列一旦错位就会“看着像对了，其实不对”。
@@ -202,7 +202,7 @@ python samples/verify/verify.py stress --c3d path/to/c3d_dir --sample 0 --report
 ### S11 — Bundles roundtrip
 
 - 预设：把 chunk 缓存成 bundle（`.sqzc3d`）并重新加载。
-- 契约：export → load 往返保持 meta + payload；strict 模式能拒绝不兼容 bundle。
+- 契约：export → load 往返保持 meta + payload + `meta_tree`；strict 模式能拒绝不兼容 bundle。
 - Stress：`python samples/verify/verify.py stress --c3d <dir> --scenarios S11`
 - 结果：PASS 表示“bundle 可安全用于缓存”。若 Python 构建缺少 `export_bundle`，该场景会降级为 WARN。
 - 形象化：把结果打包成“缓存箱”，下次开箱即用；strict 模式像“验封条”，封条不对就拒收。
@@ -212,7 +212,7 @@ python samples/verify/verify.py stress --c3d path/to/c3d_dir --sample 0 --report
 ### S12 — `open_memory`
 
 - 预设：从 bytes 读取（例如网络/归档/WASM FS）。
-- 契约：`open_memory` 与读取同一路径文件的行为一致。
+- 契约：`open_memory` 与读取同一路径文件的行为一致（包括 `meta_tree`）。
 - Stress：`python samples/verify/verify.py stress --c3d <dir> --scenarios S12`
 - 结果：PASS 表示“bytes-in == file-in”。
 - 形象化：同一份内容，从硬盘读还是从网络 bytes 读，读出来都应该是同样的“内容”。
