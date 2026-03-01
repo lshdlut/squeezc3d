@@ -655,6 +655,93 @@ def _compare_meta_counts(sq_meta: dict, ez_meta: dict) -> List[str]:
     return out
 
 
+def _drop_meta_tree_dimensions(value: Any) -> Any:
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for k, v in value.items():
+            if k == "dimensions":
+                continue
+            out[str(k)] = _drop_meta_tree_dimensions(v)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_drop_meta_tree_dimensions(v) for v in value]
+    return value
+
+
+def _meta_tree_dimension_issues(sq_tree: Any) -> List[str]:
+    issues: List[str] = []
+    if not isinstance(sq_tree, dict):
+        return issues
+    groups = sq_tree.get("groups", {})
+    if not isinstance(groups, dict):
+        return issues
+
+    def _prod(xs: List[int]) -> int:
+        p = 1
+        for v in xs:
+            p *= v
+        return p
+
+    for g_name, g in groups.items():
+        if not isinstance(g, dict):
+            continue
+        params = g.get("parameters", {})
+        if not isinstance(params, dict):
+            continue
+        for p_name, p in params.items():
+            if not isinstance(p, dict):
+                continue
+            if "values" not in p:
+                continue
+            if "dimensions" not in p:
+                issues.append(f"meta_tree.{g_name}.{p_name}: missing dimensions")
+                continue
+            dims = p.get("dimensions")
+            if not isinstance(dims, (list, tuple)):
+                issues.append(f"meta_tree.{g_name}.{p_name}: dimensions not a list")
+                continue
+            dims_i: List[int] = []
+            bad = False
+            for d in dims:
+                try:
+                    di = int(d)
+                except Exception:
+                    bad = True
+                    break
+                # ezc3d may report zero-sized dimensions (e.g. unused/empty parameters),
+                # and CHAR parameters may have dimension[0] == 0 when all strings are empty.
+                if di < 0:
+                    bad = True
+                    break
+                dims_i.append(di)
+            if bad:
+                issues.append(f"meta_tree.{g_name}.{p_name}: invalid dimensions={dims!r}")
+                continue
+
+            values = p.get("values")
+            if not isinstance(values, (list, tuple)):
+                issues.append(f"meta_tree.{g_name}.{p_name}: values not a list")
+                continue
+
+            p_type = p.get("type")
+            try:
+                p_type_i = int(p_type) if p_type is not None else None
+            except Exception:
+                p_type_i = None
+
+            if p_type_i == -1:
+                expected = _prod(dims_i[1:]) if len(dims_i) > 1 else 1
+            else:
+                expected = _prod(dims_i) if len(dims_i) > 0 else (1 if len(values) > 0 else 0)
+
+            if expected != len(values):
+                issues.append(
+                    f"meta_tree.{g_name}.{p_name}: dimensions inconsistent dims={dims_i} values={len(values)} expected={expected}"
+                )
+
+    return issues
+
+
 def _compare_meta_tree(sq_chunk, ez) -> List[str]:
     out: List[str] = []
     try:
@@ -665,7 +752,8 @@ def _compare_meta_tree(sq_chunk, ez) -> List[str]:
     ez_params = _to_dict_like(ez.get("parameters", {}))
 
     expected_tree = _normalize_ezc3d_meta_tree(ez_params)
-    _compare_value("meta_tree", sq_tree, expected_tree, out)
+    _compare_value("meta_tree", _drop_meta_tree_dimensions(sq_tree), expected_tree, out)
+    out.extend(_meta_tree_dimension_issues(sq_tree))
     if len(out) > 0:
         return out[:_MAX_TREE_DIFF]
     return out

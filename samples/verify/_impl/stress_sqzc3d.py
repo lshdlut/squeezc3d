@@ -253,6 +253,85 @@ def _normalize_sq_meta_tree(sq_tree: Any) -> dict[str, Any]:
     return {"groups": groups}
 
 
+def _meta_tree_dimension_issues(sq_tree: Any) -> list[str]:
+    issues: list[str] = []
+    if not isinstance(sq_tree, dict):
+        return issues
+    groups = sq_tree.get("groups", {})
+    if not isinstance(groups, dict):
+        return issues
+
+    def _prod(xs: list[int]) -> int:
+        p = 1
+        for v in xs:
+            p *= v
+        return p
+
+    for g_name, g in groups.items():
+        if not isinstance(g, dict):
+            continue
+        params = g.get("parameters", {})
+        if not isinstance(params, dict):
+            continue
+        for p_name, p in params.items():
+            if not isinstance(p, dict):
+                continue
+            if "values" not in p:
+                continue
+            if "dimensions" not in p:
+                issues.append(f"meta_tree.{g_name}.{p_name}: missing dimensions")
+                continue
+            dims = p.get("dimensions")
+            if not isinstance(dims, (list, tuple)):
+                issues.append(f"meta_tree.{g_name}.{p_name}: dimensions not a list")
+                continue
+            dims_i: list[int] = []
+            bad = False
+            for d in dims:
+                try:
+                    di = int(d)
+                except Exception:
+                    bad = True
+                    break
+                # ezc3d may report zero-sized dimensions (e.g. unused/empty parameters),
+                # and CHAR parameters may have dimension[0] == 0 when all strings are empty.
+                if di < 0:
+                    bad = True
+                    break
+                dims_i.append(di)
+            if bad:
+                issues.append(f"meta_tree.{g_name}.{p_name}: invalid dimensions={dims!r}")
+                continue
+
+            values = p.get("values")
+            if not isinstance(values, (list, tuple)):
+                issues.append(f"meta_tree.{g_name}.{p_name}: values not a list")
+                continue
+
+            p_type = p.get("type")
+            try:
+                p_type_i = int(p_type) if p_type is not None else None
+            except Exception:
+                p_type_i = None
+
+            if p_type_i == -1:
+                # ezc3d CHAR parameters include the string-length in dimension[0].
+                # `values` is a list of strings, so its expected length is prod(dim[1:]) (or 1 for a single string).
+                expected = _prod(dims_i[1:]) if len(dims_i) > 1 else 1
+            else:
+                if len(dims_i) == 0:
+                    expected = 1 if len(values) > 0 else 0
+                else:
+                    expected = _prod(dims_i)
+
+            if expected != len(values):
+                issues.append(
+                    f"meta_tree.{g_name}.{p_name}: dimensions inconsistent dims={dims_i} values={len(values)} expected={expected}"
+                )
+
+    return issues
+
+
 def _extract_ez_reference(file_path: Path):
     ez = _safe_ez3d()
     return _smoke._load_ezc3d_reference(file_path)  # type: ignore[attr-defined]
@@ -383,13 +462,15 @@ def _cmp_analogs(sq_ana, sq_v, ez_ana, ez_v, strict: bool = False) -> list[str]:
 
 def _meta_tree_compare(chunk, ez) -> list[str]:
     try:
-        sq_tree = _normalize_sq_meta_tree(_to_plain(chunk.meta_tree))
+        sq_raw = _to_plain(chunk.meta_tree)
+        sq_tree = _normalize_sq_meta_tree(sq_raw)
     except Exception as exc:
         return [f"meta_tree access failed: {type(exc).__name__}: {exc}"]
     params = _to_dictlike(ez.get("parameters", {}))
     expected = _normalize_ez_meta_tree(params)
     diffs: list[str] = []
     _compare_value("meta_tree", sq_tree, expected, diffs)
+    diffs.extend(_meta_tree_dimension_issues(sq_raw))
     return diffs[:200]
 
 
@@ -625,6 +706,53 @@ def _run_scenario_S04(context: dict[str, Any], files: list[Path]) -> ScenarioRep
                 if pts.shape != expected.shape:
                     status = "FAIL"
                     notes.append(f"point window mismatch (s={s},c={c}): {pts.shape} != {expected.shape}")
+
+                # Time-axis metadata should be present and consistent with the window.
+                m = sub.meta
+                if not isinstance(m, dict):
+                    status = "FAIL"
+                    notes.append("meta is not a dict")
+                else:
+                    fs = m.get("frame_start", None)
+                    if fs is None or int(fs) != int(s):
+                        status = "FAIL"
+                        notes.append(f"meta.frame_start mismatch (s={s},c={c}): {fs!r} != {s}")
+
+                    sf = m.get("source_first_frame", None)
+                    fsa = m.get("frame_start_abs", None)
+                    if sf is None or fsa is None:
+                        status = "FAIL"
+                        notes.append("time-axis meta missing (source_first_frame/frame_start_abs)")
+                    else:
+                        if int(fsa) != int(sf) + int(fs or 0):
+                            status = "FAIL"
+                            notes.append(f"meta.frame_start_abs inconsistent: {fsa} != {sf}+{fs}")
+
+                    afs = m.get("analog_frame_start", None)
+                    if afs is None or int(afs) != 0:
+                        status = "FAIL"
+                        notes.append(f"meta.analog_frame_start mismatch (s={s},c={c}): {afs!r} != 0")
+
+                    pr = m.get("point_rate_hz", None)
+                    ar = m.get("analog_rate_hz", None)
+                    if pr is None or ar is None:
+                        status = "FAIL"
+                        notes.append("time-axis meta missing (point_rate_hz/analog_rate_hz)")
+                    else:
+                        try:
+                            pr_f = float(pr)
+                            ar_f = float(ar)
+                        except Exception:
+                            status = "FAIL"
+                            notes.append("time-axis meta invalid (point_rate_hz/analog_rate_hz)")
+                        else:
+                            if pr_f <= 0.0:
+                                status = "WARN" if status == "PASS" else status
+                                notes.append(f"point_rate_hz not positive: {pr_f}")
+                            expected_ar = pr_f * float(n_by_frame)
+                            if n_by_frame > 0 and not np.isclose(ar_f, expected_ar, rtol=1e-6, atol=1e-6):
+                                status = "WARN" if status == "PASS" else status
+                                notes.append(f"analog_rate_hz unexpected: {ar_f} vs {expected_ar}")
                 if c >= 0:
                     expect_s = 0 if c == 0 else (n_by_frame * expect_n if n_by_frame > 0 else 0)
                     expected_a = np.asarray(full_ana[:, 0:expect_s])
@@ -1012,6 +1140,25 @@ def _run_scenario_S11(context: dict[str, Any], files: list[Path]) -> ScenarioRep
                     status = "FAIL"
                     notes.append(f"meta.{key} mismatch: {chunk.meta.get(key)} vs {loaded.meta.get(key)}")
 
+            for key in (
+                "source_first_frame",
+                "source_last_frame",
+                "point_rate_hz",
+                "analog_rate_hz",
+                "frame_start",
+                "analog_frame_start",
+            ):
+                a = chunk.meta.get(key)
+                b = loaded.meta.get(key)
+                if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                    if not bool(np.isclose(float(a), float(b), rtol=_REL_TOL, atol=_FLOAT_TOL)):
+                        status = "FAIL"
+                        notes.append(f"meta.{key} mismatch: {a} vs {b}")
+                else:
+                    if a != b:
+                        status = "FAIL"
+                        notes.append(f"meta.{key} mismatch: {a!r} vs {b!r}")
+
             _cmp_arrays("points", chunk.points()[0], loaded.points()[0], notes)
             _cmp_arrays("points_valid", chunk.points()[1], loaded.points()[1], notes)
             _cmp_arrays("analogs", chunk.analogs(None, layout="CN")[0], loaded.analogs(None, layout="CN")[0], notes)
@@ -1026,6 +1173,19 @@ def _run_scenario_S11(context: dict[str, Any], files: list[Path]) -> ScenarioRep
                 if chunk.meta.get(key) != loaded.meta.get(key):
                     status = "FAIL"
                     notes.append(f"meta.{key} mismatch")
+
+            try:
+                diffs: list[str] = []
+                _compare_value("meta_tree", _to_plain(chunk.meta_tree), _to_plain(loaded.meta_tree), diffs)
+                if diffs:
+                    status = "FAIL"
+                    notes.append("meta_tree mismatch after bundle roundtrip")
+                    notes.extend(diffs[:40])
+                else:
+                    notes.append("meta_tree preserved in bundle")
+            except Exception as exc:
+                status = "FAIL"
+                notes.append(f"meta_tree access failed: {type(exc).__name__}: {exc}")
 
             if status == "PASS":
                 notes.append("bundle roundtrip PASS")
@@ -1050,6 +1210,37 @@ def _run_scenario_S12(context: dict[str, Any], files: list[Path]) -> ScenarioRep
         if np.asarray(chunk_file.meta).size != np.asarray(chunk_mem.meta).size:
             status = "WARN"
             notes.append("meta object mismatch, compare field-by-field")
+
+        for key in (
+            "source_first_frame",
+            "source_last_frame",
+            "point_rate_hz",
+            "analog_rate_hz",
+            "frame_start",
+            "analog_frame_start",
+        ):
+            a = chunk_file.meta.get(key)
+            b = chunk_mem.meta.get(key)
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                if not bool(np.isclose(float(a), float(b), rtol=_REL_TOL, atol=_FLOAT_TOL)):
+                    status = "FAIL"
+                    notes.append(f"meta.{key} mismatch file vs memory: {a} vs {b}")
+            else:
+                if a != b:
+                    status = "FAIL"
+                    notes.append(f"meta.{key} mismatch file vs memory: {a!r} vs {b!r}")
+        try:
+            diffs: list[str] = []
+            _compare_value("meta_tree", _to_plain(chunk_file.meta_tree), _to_plain(chunk_mem.meta_tree), diffs)
+            if diffs:
+                status = "FAIL"
+                notes.append("meta_tree mismatch file vs memory")
+                notes.extend(diffs[:40])
+            else:
+                notes.append("meta_tree preserved for open_memory")
+        except Exception as exc:
+            status = "FAIL"
+            notes.append(f"meta_tree access failed: {type(exc).__name__}: {exc}")
         out.append(FileReport(file=str(fp), status=status, notes=notes, metrics={}))
     return ScenarioReport("S12", "open_memory", _status_aggregate(out), out, [], {})
 

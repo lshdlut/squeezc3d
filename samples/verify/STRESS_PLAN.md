@@ -385,6 +385,7 @@
 **需求（契约）**
 
 - `export_bundle` → `load_bundle`：数据完全一致
+- `meta_tree`（参数树）应随 bundle 一起保存并在 load 后可用（尤其 FORCE_PLATFORM 这类参数）
 - strict/non-strict 行为固定：
   - strict 必须在不匹配时报错且给出 reason/detail
   - non-strict 允许 best-effort，但不得 silent corruption
@@ -407,7 +408,7 @@
 
 **需求（契约）**
 
-- `open_file` 与 `open_memory` 的输出一致（同 selection/window）
+- `open_file` 与 `open_memory` 的输出一致（同 selection/window；包括 `meta_tree`）
 - 即使内部实现走临时文件，也必须：
   - 关闭后可删除临时文件（Windows 尤其关键）
   - 错误信息可诊断（`last_error(NULL)` 在 open 失败时可用）
