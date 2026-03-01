@@ -6,13 +6,15 @@
 - 需要 C/C++ 或想跑 samples/benchmarks：用 CMake 从源码构建。
 - 可选能力由 CMake 选项控制，例如 `SQZC3D_WITH_EZC3D`。
 
-## Python — pip
+## Python
+
+用 pip 安装：
 
 ```bash
 pip install sqzc3d
 ```
 
-## C/C++ — 从源码构建
+## C/C++ 从源码构建
 
 ```bash
 cmake -S . -B build
@@ -39,14 +41,14 @@ cmake --build build --config Release --parallel
   取值：`ON|OFF`。默认：`OFF`。  
   构建 CLI samples 与 benchmarks。
 
-## CMake 用法 — 作为依赖
+## 作为依赖使用
 
 ```cmake
 add_subdirectory(path/to/squeezc3d)
 target_link_libraries(your_target PRIVATE sqzc3d)
 ```
 
-## 运行时能力 — 可选
+## 运行时能力
 
 你可以通过 `sqzc3d_get_features()` 查询运行时能力位：
 

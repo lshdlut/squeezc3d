@@ -5,7 +5,7 @@
 - bundle 是 `sqzc3d` 的缓存格式，用来“下次更快加载”。
 - 推荐使用单文件 bundle：`*.sqzc3d`。
 - `sqzc3d.read(...)` 会自动识别 bundle；strict 与 best-effort 行为可选。
-- bundle 会保存关键元数据（包括 `meta_tree` 参数树），因此你用 bundle 也能读取像 FORCE_PLATFORM 这类参数。
+- bundle 会保存关键元数据（包括 `meta_tree` 参数树与时间轴字段），因此你用 bundle 也能读取像 FORCE_PLATFORM 这类参数。
 
 形象化：把“解码后的两张表”装进一个缓存箱，下次直接开箱，不必再从头解码。
 
@@ -69,4 +69,5 @@ int st = sqzc3d_load_bundle(bundle_path_or_dir, &chunk);
 备注：
 
 - bundle 会加载成 `sqzc3d_chunk_t*`，因此可复用相同的 view/query/free APIs。
+- bundle 元数据（`meta.json`）会记录 `sqzc3d_version` 与 `sqzc3d_abi_version`，便于诊断版本兼容性问题。
 - bundle 可能包含额外元数据；若出现不匹配，可使用 `chunk->reason` / `sqzc3d_last_error_detail(...)` 进行诊断。

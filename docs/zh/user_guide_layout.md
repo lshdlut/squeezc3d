@@ -12,9 +12,11 @@
 
 形象化：把 C3D 当成两张表（points 表 + analogs 表），你关心的首先是“表的形状”和“如何索引”。
 
-## Points — 点轨迹
+## 点轨迹
 
-Materialized points 的约定：
+这里的 points 指的是 marker 的三维轨迹，也就是“点轨迹”。
+
+Materialize 后 points 的约定：
 
 - Layout：frame-major（按帧优先）
 - Pack：AoS XYZ，并搭配独立的 `valid` mask
@@ -42,9 +44,11 @@ p_clean = p[pv != 0]
 - `view.points_xyz`：`(T, P, 3)`，frame-major，连续（contiguous）
 - `view.points_valid`：`(T, P)`，连续（contiguous）
 
-## Analogs — 模拟通道
+## 模拟通道
 
-Materialized analogs 默认是 channel-major（按通道优先）：
+这里的 analogs 指的是“模拟通道”，比如地反力/力矩、EMG 等。
+
+Materialize 后 analogs 默认是 channel-major（按通道优先）：
 
 - Layout：`(C, N)`，其中 `N = T * S`
 - `S = n_analog_by_frame`（每帧的 subframes 数）

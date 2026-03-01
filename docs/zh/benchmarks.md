@@ -4,6 +4,8 @@
 
 定义：`speedup_x = ezc3d / sqzc3d`（值越大表示 `sqzc3d` 越好，包含内存比例）。
 
+备注：这些数字是一次测量的“快照”，更适合作为趋势参考。请以你在自己机器上跑出的结果为准。
+
 ## 测什么
 
 - **Chunk materialize**：构建紧凑且连续的 `double` 缓冲区 `[frame][point][3]`（+ valid mask）。
@@ -39,7 +41,7 @@ python samples/bench/bench_python.py <file.c3d> --lib ezc3d  --repeat <repeat>
 
 ## Materialize 模式
 
-### C++ — 原生
+### C++
 
 PFERD（117.96 MB, frames=55,844, points=132, repeat=1）：
 
@@ -61,7 +63,7 @@ PFERD（117.96 MB, frames=55,844, points=132, repeat=1）：
 
 ### Python
 
-PFERD（117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3), `ezc3d` v1.6.0）：
+PFERD（117.96 MB, frames=55,844, points=132, repeat=1）：
 
 | 指标 | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |
@@ -70,7 +72,7 @@ PFERD（117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3),
 | `window_copy_us_T256_kall` | 13.070 | 159.610 | 12.2x |
 | `peak_rss_mb` | 209.617 | 1373.492 | 6.6x |
 
-小文件（DOG, 4.23 MB, frames=4,634, points=57, repeat=5, `sqzc3d` v0.3.2 (ABI 3), `ezc3d` v1.6.0）：
+小文件（DOG, 4.23 MB, frames=4,634, points=57, repeat=5）：
 
 | 指标 | sqzc3d | ezc3d | `speedup_x` |
 | --- | ---: | ---: | ---: |
@@ -79,7 +81,9 @@ PFERD（117.96 MB, frames=55,844, points=132, repeat=1, `sqzc3d` v0.3.2 (ABI 3),
 | `window_copy_us_T256_kall` | 3.983 | 42.041 | 10.6x |
 | `peak_rss_mb` | 44.789 | 130.855 | 2.9x |
 
-## Streaming 模式 — 仅 sqzc3d，低内存
+## Streaming 模式
+
+该模式仅由 `sqzc3d` 提供，目标是极低内存占用。
 
 示例（PFERD, repeat=1）：
 

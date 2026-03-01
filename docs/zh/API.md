@@ -1,14 +1,14 @@
-# squeezc3d API 参考 — `sqzc3d`
+# `sqzc3d` API 参考
 
 适用于 `sqzc3d` v0.3.x（ABI `SQZC3D_ABI_VERSION=3`）。
 
-## Headers — 头文件
+## 头文件
 
 - `include/sqzc3d.h`: public C API
 - `include/sqzc3d_types.h`: shared scalar and status types
 - `include/sqzc3d_easy.h`: lightweight C++ convenience helpers
 
-## Initialization helpers — 初始化 helpers
+## 初始化 helpers
 
 | API | 用途 |
 | --- | --- |
@@ -30,7 +30,7 @@
 - 当 `analog_enable = sqzc3d_ANALOG_EN_AUTO` 时，`sqzc3d_build_chunks` 会强制 `analog_size_soft_limit_bytes`
   （默认 `500 MiB`），若预计 analog payload 超过该限制则以 `sqzc3d_STATUS_INVALID_ARGUMENT` 失败。
 
-## Life-cycle — 生命周期
+## 生命周期
 
 | API | 用途 |
 | --- | --- |
@@ -49,7 +49,7 @@
 > 在 `SQZC3D_WITH_EZC3D=OFF` 时，`sqzc3d_open_file`、`sqzc3d_open_memory`、`sqzc3d_build_chunks` 会返回
 > `sqzc3d_STATUS_NOT_IMPLEMENTED`；以 `sqzc3d_get_features()` 为准。
 
-## Chunk building and query — chunk 构建与查询
+## Chunk 构建与查询
 
 | API | 用途 |
 | --- | --- |
@@ -63,7 +63,7 @@
 | `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` | 按 frame 或 index list 构建 points views。 |
 | `sqzc3d_analogs_view_samples` / `sqzc3d_analogs_view_channels` | 按 sample range 或 channel list 构建 analog views。 |
 
-## Bundle persistence — bundle 持久化
+## Bundle 持久化
 
 | API | 用途 |
 | --- | --- |
@@ -92,7 +92,7 @@
   - `analog_shape = [n_analogs][n_frames*n_analog_by_frame]`（contiguous）
   - `analog_stride = [n_frames*n_analog_by_frame, 1]`
 
-## Feature and capability — 特性与能力
+## 特性与能力
 
 | API | 用途 |
 | --- | --- |
@@ -124,7 +124,7 @@
 - `sqzc3d::ReorderFrameMajorToPointMajor`
   - 供需要 point-major layout 的消费者使用的 reorder helper。
 
-## Status and enums — 状态码与枚举
+## 状态码与枚举
 
 - 返回码为来自 `sqzc3d_types.h` 的 C-style ints：
   - `sqzc3d_STATUS_SUCCESS`
@@ -138,14 +138,16 @@
   - read policy：`AUTO`、`DENSE`、`SPARSE`
   - valid policy：`sqzc3d_VALID_POLICY_FINITE_XYZ`
 
-## Notes
+## 备注
 
 - API 与 C89 兼容（C++ 可通过 `extern "C"` 使用）。
 - 所有非 `const` out-parameters 都要求 caller 提供可写内存。
 - 由本库分配的资源必须使用对应的 `free` APIs 释放。
 - v0.x 暂不提供 residual/camera-mask 的 public payload；若下游需要，可通过 request/extension 添加。
 
-## Python API — pybind11
+## Python API
+
+Python bindings 基于 pybind11。
 
 Python 高层导出：
 
@@ -162,7 +164,9 @@ Python 高层导出：
 - `sqzc3d.load_bundle(path: str, strict: bool = True)`
 - `sqzc3d.export_bundle(out_dir: str, chunk: sqzc3d.Chunk)`
 
-### Easy layer — 推荐
+### Easy 层
+
+推荐大多数用户从这里开始。
 
 `read`：
 

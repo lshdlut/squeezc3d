@@ -143,6 +143,7 @@ python samples/verify/verify.py stress --c3d path/to/c3d_dir --sample 0 --report
 
 - 预设：只读取一个窗口（`start_frame`, `frame_count`），而不是一次读完整条 trial。
 - 契约：窗口读取 == “整条 materialize 后再切片”，包括边界值（`frame_count=0`, `-1`）。
+- 契约：`meta` 会记录这次窗口在源时间轴上的起点（`frame_start` / `analog_frame_start` 及其绝对值版本）。
 - Stress：`python samples/verify/verify.py stress --c3d <dir> --scenarios S04`
 - 结果：PASS 表示“窗口读取是安全的优化”（也对应 `user_guide_materialize_vs_streaming.md`）。
 - 形象化：只解码视频的某一段，不应该导致画面内容变了（只是少读了一段）。
@@ -159,6 +160,7 @@ python samples/verify/verify.py stress --c3d path/to/c3d_dir --sample 0 --report
 
 - 预设：labels 存在空格 / 大小写等差异。
 - 契约：`label_norm` 策略行为与文档一致且稳定。
+- 契约：若归一化后出现同名冲突，`sqzc3d` 会直接报错，而不是悄悄选中其中一个。
 - Stress：`python samples/verify/verify.py stress --c3d <dir> --scenarios S06`
 - 结果：PASS 表示“label 匹配规则可解释、可测试”。
 - 形象化：同一个人名写法不统一（空格/大小写），先按规则统一，再去匹配才不容易踩坑。

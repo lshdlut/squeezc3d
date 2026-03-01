@@ -30,8 +30,8 @@ v = sq.read("bundle_dir/")      # 加载 directory bundle
 
 - `start_frame`, `frame_count`：按帧的 window 选择
 - `points`, `analogs`：label 选择器
-- `analog_range`：按 sample-range 的选择（高级）
-- `label_norm`：label 归一化模式
+- `analog_range`：analog 的窗口选择（高级；与 `start_frame` 属于同一套“按帧计”的编号体系）
+- `label_norm`：label 归一化模式（若归一化后变得不唯一，会直接报错）
 - `recipe`：可复用的过滤 recipe（目前主要是 type-groups）
 
 选择器语义：
@@ -39,6 +39,24 @@ v = sq.read("bundle_dir/")      # 加载 directory bundle
 - `None` 表示默认（ALL）
 - `[]` 表示空选择
 - `str` 或 `sequence[str]` 表示按 label 选择
+
+## 窗口与时间轴
+
+`View.meta` 会包含时间轴相关元数据（若可用）：
+
+- `source_first_frame`, `source_last_frame`：源 C3D 的“绝对帧号”
+- `point_rate_hz`, `analog_rate_hz`：采样率
+- `frame_start`, `frame_start_abs`：本次 points 窗口的起点（相对 / 绝对）
+- `analog_frame_start`, `analog_frame_start_abs`：本次 analog 窗口的起点（相对 / 绝对）
+
+如果你希望 analog 与 points 严格对齐，请显式传入 `analog_range=(start_frame, frame_count)`：
+
+```python
+import sqzc3d as sq
+
+v = sq.read("trial.c3d", start_frame=100, frame_count=200, analog_range=(100, 200))
+print(v.meta["frame_start_abs"], v.meta["analog_frame_start_abs"])
+```
 
 ## 选择状态：直接改 `View` 字段
 

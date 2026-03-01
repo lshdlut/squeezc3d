@@ -43,7 +43,18 @@ chunk.points(["LANK"])     # labels (chunk-local label table)
 
 - 对非连续选择，必须 `copy=True`。
 
-## C API — `sqzc3d_build_opt_t`
+## Label 归一化
+
+`label_norm` 会在匹配前对 labels 做归一化（trim / 大小写折叠 / 空白统一）。
+
+如果归一化导致“同名冲突”（多个源 labels 归一化后变成同一个），`sqzc3d` 会直接报错，
+而不是悄悄选中其中一个。
+
+此时建议：用 `label_norm=EXACT` 配合精确 label，或下探到 Core 用 indices 来消歧义。
+
+## C API
+
+核心入口是 `sqzc3d_build_opt_t`。
 
 C materialize API 会在构建 chunk 时对 points/analogs 做选择（也就是“在 materialize 阶段做过滤”）。
 
@@ -57,7 +68,9 @@ Point selection：
 
 - `*_sel_count == 0` 是合法的空选择（不是错误）。
 
-## 索引空间 — Index spaces
+## 索引空间
+
+这就是所谓的 index spaces：同一份数据有两套“编号体系”。
 
 points 存在两个 index space：
 

@@ -6,7 +6,9 @@
 pip install sqzc3d
 ```
 
-## 推荐：Easy — `read -> View`
+## 推荐：Easy
+
+`read -> View`：直接把 C3D 读成数组的那层。
 
 30 秒版本：
 
@@ -60,7 +62,9 @@ Python 选择器语义：
 
 - `View._chunk` 暴露底层 `Chunk`（indices/masks 等属于高级功能，不主推但可用）。
 
-## 进阶：Core — `Decoder -> Chunk`
+## 进阶：Core
+
+`Decoder -> Chunk`：更精细的窗口/选择器/布局控制。
 
 ```python
 import sqzc3d
