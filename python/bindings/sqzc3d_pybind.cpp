@@ -210,18 +210,52 @@ struct PyDecoder {
   }
 
   PyDecoder(py::buffer buffer, int label_norm = sqzc3d_LABEL_NORM_EXACT) {
-    auto view = buffer.request();
+    const auto view = buffer.request();
     if (view.itemsize <= 0) {
       throw std::runtime_error("input buffer has invalid itemsize");
     }
-    if (view.size < 0 || view.size > static_cast<std::ptrdiff_t>(std::numeric_limits<int>::max())) {
+    if (view.size < 0) {
+      throw std::runtime_error("input buffer has invalid size");
+    }
+
+    const auto itemsize = static_cast<std::size_t>(view.itemsize);
+    const auto n_items = static_cast<std::size_t>(view.size);
+    const auto max_nbytes = static_cast<std::size_t>(std::numeric_limits<int>::max());
+    if (itemsize == 0u || n_items > max_nbytes / itemsize) {
       throw std::runtime_error("input buffer too large");
     }
-    const auto n_bytes = static_cast<int>(view.size * view.itemsize);
+    const auto n_bytes_size = n_items * itemsize;
+    if (n_bytes_size == 0u) {
+      throw std::runtime_error("input buffer is empty");
+    }
+
     sqzc3d_open_opt_t opt{};
     sqzc3d_default_open_opt(&opt);
     opt.label_norm = label_norm;
-    CheckStatus(sqzc3d_open_memory(&handle.dec, view.ptr, n_bytes, &opt), "sqzc3d_open_memory");
+
+    const bool contiguous_1d =
+        (view.ndim == 1 && view.strides.size() == 1 && view.strides[0] == view.itemsize);
+    if (contiguous_1d) {
+      CheckStatus(
+          sqzc3d_open_memory(&handle.dec, view.ptr, static_cast<int>(n_bytes_size), &opt),
+          "sqzc3d_open_memory");
+      return;
+    }
+
+    // Fallback: materialize a contiguous byte snapshot for strided / multi-dim buffers.
+    const py::object mv = py::module_::import("builtins").attr("memoryview")(buffer);
+    const py::object bytes_obj = mv.attr("tobytes")();
+    char* data_ptr = nullptr;
+    Py_ssize_t data_len = 0;
+    if (PyBytes_AsStringAndSize(bytes_obj.ptr(), &data_ptr, &data_len) != 0) {
+      throw std::runtime_error("failed to materialize input buffer to bytes");
+    }
+    if (data_len <= 0 || data_len > static_cast<Py_ssize_t>(std::numeric_limits<int>::max())) {
+      throw std::runtime_error("input buffer too large");
+    }
+    CheckStatus(
+        sqzc3d_open_memory(&handle.dec, data_ptr, static_cast<int>(data_len), &opt),
+        "sqzc3d_open_memory");
   }
 
   bool is_closed() const { return handle.dec == nullptr; }
@@ -458,8 +492,16 @@ struct PyChunk {
       throw std::runtime_error("non-contiguous point selection requires copy=True");
     }
 
-    py::array_t<sqzc3d_num_t> values = MakeArrayNoCopy(view.points_xyz, vshape, vstrides, py::cast(*this));
-    if (!view.points_valid) {
+    const sqzc3d_num_t* base_xyz = view.points_xyz;
+    const unsigned char* base_valid = view.points_valid;
+    if (contiguous && view.source_point_offset > 0) {
+      const std::size_t o = static_cast<std::size_t>(view.source_point_offset);
+      base_xyz = base_xyz ? base_xyz + o * 3u : nullptr;
+      base_valid = base_valid ? base_valid + o : nullptr;
+    }
+
+    py::array_t<sqzc3d_num_t> values = MakeArrayNoCopy(base_xyz, vshape, vstrides, py::cast(*this));
+    if (!base_valid) {
       auto filled = py::array_t<unsigned char>(vshape_valid);
       auto* vp = static_cast<unsigned char*>(filled.mutable_data());
       std::fill(vp, vp + static_cast<std::size_t>(view.n_frames) * static_cast<std::size_t>(view.n_points),
@@ -467,7 +509,7 @@ struct PyChunk {
       return py::make_tuple(values, filled);
     }
     py::array_t<unsigned char> valid =
-        MakeArrayNoCopy(view.points_valid, vshape_valid, vstrides_valid, py::cast(*this));
+        MakeArrayNoCopy(base_valid, vshape_valid, vstrides_valid, py::cast(*this));
     return py::make_tuple(values, valid);
   }
 
