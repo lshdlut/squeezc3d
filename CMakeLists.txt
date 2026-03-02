@@ -94,6 +94,7 @@ set(sqzc3d_WITH_EZC3D ${SQZC3D_WITH_EZC3D})
 
 set(SQZC3D_SOURCE
   src/sqzc3d_c3d_stream.cpp
+  src/sqzc3d_error_internal.cpp
   src/sqzc3d.cpp
 )
 

@@ -92,11 +92,13 @@ inline int ReadPointsWindow(
     const sqzc3d_build_opt_t* preset_opt,
     sqzc3d_chunk_t** out_chunk) {
   if (!dec || !out_chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (n_point_indices < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (n_point_indices > 0 && !point_indices) return sqzc3d_STATUS_INVALID_ARGUMENT;
   sqzc3d_build_opt_t opt;
   const int st = MakeFrameWindowBuildOpt(preset_opt, &opt);
   if (st != sqzc3d_STATUS_SUCCESS) return st;
   opt.frame_range = {start_frame, frame_count};
-  if (n_point_indices > 0 && point_indices) {
+  if (n_point_indices > 0) {
     opt.point_sel_mode = sqzc3d_POINT_SEL_INDICES;
     opt.point_sel = point_indices;
     opt.point_sel_count = n_point_indices;
@@ -117,11 +119,13 @@ inline int ReadPointsWindowByLabels(
     const sqzc3d_build_opt_t* preset_opt,
     sqzc3d_chunk_t** out_chunk) {
   if (!dec || !out_chunk) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (n_point_labels < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (n_point_labels > 0 && !point_labels) return sqzc3d_STATUS_INVALID_ARGUMENT;
   sqzc3d_build_opt_t opt;
   const int st = MakeFrameWindowBuildOpt(preset_opt, &opt);
   if (st != sqzc3d_STATUS_SUCCESS) return st;
   opt.frame_range = {start_frame, frame_count};
-  if (n_point_labels > 0 && point_labels) {
+  if (n_point_labels > 0) {
     opt.point_sel_mode = sqzc3d_POINT_SEL_LABELS;
     opt.point_labels = point_labels;
     opt.point_labels_count = n_point_labels;

@@ -1,4 +1,5 @@
 #include "sqzc3d_c3d_stream.h"
+#include "sqzc3d_error_internal.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,6 +23,19 @@ using sqzc3d_status = int;
 namespace {
 
 using C3dStreamMeta = sqzc3d::C3dStreamMeta;
+
+struct ApiCtx {
+  const char* api = "";
+
+  explicit ApiCtx(const char* in_api) : api(in_api ? in_api : "") {
+    sqzc3d::internal::reset_global_error();
+  }
+
+  int fail(int status, const std::string& message, const char* section = nullptr, int index = -1) const {
+    sqzc3d::internal::set_global_error(status, message, api, section, index);
+    return status;
+  }
+};
 
 class C3dHeaderOnly final : public ezc3d::c3d {
  public:
@@ -147,12 +161,10 @@ static bool is_finite_xyz(sqzc3d_num_t x, sqzc3d_num_t y, sqzc3d_num_t z) {
          z != -std::numeric_limits<sqzc3d_num_t>::infinity();
 }
 
-static void normalize_processor_type(ezc3d::PROCESSOR_TYPE& p) {
-  if (p == ezc3d::PROCESSOR_TYPE::INTEL || p == ezc3d::PROCESSOR_TYPE::DEC ||
-      p == ezc3d::PROCESSOR_TYPE::MIPS) {
-    return;
-  }
-  p = ezc3d::PROCESSOR_TYPE::INTEL;
+static bool is_supported_processor_type(ezc3d::PROCESSOR_TYPE p) {
+  return p == ezc3d::PROCESSOR_TYPE::INTEL ||
+         p == ezc3d::PROCESSOR_TYPE::DEC ||
+         p == ezc3d::PROCESSOR_TYPE::MIPS;
 }
 
 static std::string trim_label(const std::string& src) {
@@ -696,14 +708,36 @@ namespace sqzc3d {
 sqzc3d_status sqzc3d_c3d_stream_open_file(
     C3dStreamReader* reader,
     const char* file_path) {
-  if (!reader || !file_path) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  ApiCtx ctx("sqzc3d_c3d_stream_open_file");
+  if (!reader || !file_path) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "open_file: invalid argument", "args");
+  }
   reader->file.close();
   reader->c3d.reset();
+  reader->meta = {};
   reader->point_labels.clear();
   reader->analog_labels.clear();
   reader->type_group_names.clear();
   reader->type_group_starts.clear();
   reader->type_group_indices.clear();
+
+  struct ReaderCleanup {
+    C3dStreamReader* reader = nullptr;
+    explicit ReaderCleanup(C3dStreamReader* r) : reader(r) {}
+    void release() { reader = nullptr; }
+    ~ReaderCleanup() {
+      if (!reader) return;
+      reader->file.close();
+      reader->c3d.reset();
+      reader->meta = {};
+      reader->point_labels.clear();
+      reader->analog_labels.clear();
+      reader->type_group_names.clear();
+      reader->type_group_starts.clear();
+      reader->type_group_indices.clear();
+    }
+  };
+  ReaderCleanup cleanup(reader);
 
   std::unique_ptr<C3dHeaderOnly> c3d;
   const char* phase = "init";
@@ -713,8 +747,10 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     const auto fs_path = std::filesystem::u8path(file_path);
     reader->file.open(fs_path, std::ios::in | std::ios::binary);
     if (!reader->file.is_open()) {
-      fprintf(stderr, "[sqzc3d] ERROR: failed to open C3D file: %s\n", file_path);
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          std::string("open_file: failed to open C3D file: ") + file_path,
+          phase);
     }
     reader->file.seekg(0, std::ios::beg);
 
@@ -726,22 +762,20 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       std::string probe;
       try {
         probe = sqzc3d_debug_probe_params_layout(reader->file);
+      } catch (const std::exception& pe) {
+        probe = std::string("\n(probe failed: ") + pe.what() + ")";
       } catch (...) {
-        probe.clear();
+        probe = "\n(probe failed: unknown exception)";
       }
-      throw std::runtime_error(
-          std::string("sqzc3d_c3d_stream_open_file: header-only parse failed: ") + e.what() +
-          probe);
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          std::string("open_file: header-only parse failed: ") + e.what() + probe,
+          phase);
     }
     reader->file.clear();
     reader->file.seekg(0, std::ios::beg);
 
     phase = "check_point";
-    if (!c3d->parameters().isGroup("POINT")) {
-      fprintf(stderr,
-              "[sqzc3d] WARNING: C3D file has no POINT group: %s\n",
-              file_path);
-    }
 
     C3dStreamMeta meta{};
     C3dStreamMeta tmp{};
@@ -750,8 +784,15 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     std::string point_units_token;
     phase = "meta";
     try {
-      tmp.processor_type = c3d->parameters().processorType();
-      normalize_processor_type(tmp.processor_type);
+      const auto processor_type = c3d->parameters().processorType();
+      if (!is_supported_processor_type(processor_type)) {
+        return ctx.fail(
+            sqzc3d_STATUS_INVALID_ARGUMENT,
+            std::string("open_file: unsupported processor type: ") +
+                std::to_string(static_cast<int>(processor_type)),
+            phase);
+      }
+      tmp.processor_type = processor_type;
       tmp.header_scale = c3d->header().scaleFactor();
       tmp.point_scale = static_cast<double>(tmp.header_scale);
       int analog_record_bytes = (tmp.header_scale < 0.0) ? 4 : 2;
@@ -797,8 +838,10 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       }
       tmp.analog_record_bytes = analog_record_bytes;
     } catch (const std::exception& e) {
-      throw std::runtime_error(
-          std::string("sqzc3d_c3d_stream_open_file: meta parse failed: ") + e.what());
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          std::string("open_file: meta parse failed: ") + e.what(),
+          phase);
     }
 
     // By default, expose point coordinates in the raw C3D units (no scaling).
@@ -806,18 +849,6 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       // C3D files typically use mm; treat missing/unknown units as mm for robustness.
       tmp.point_units_per_meter = 1000.0;
       tmp.point_units_source = has_point_units_param ? 2 : 1;
-      if (tmp.point_units_source == 1) {
-        fprintf(stderr, "[sqzc3d] WARNING: C3D POINT:UNITS missing; assuming mm for xyz.\n");
-      } else {
-        const auto token_norm = normalize_unit_token(point_units_token);
-        if (!token_norm.empty()) {
-          fprintf(stderr,
-                  "[sqzc3d] WARNING: C3D POINT:UNITS unknown (\"%s\"); assuming mm for xyz.\n",
-                  token_norm.c_str());
-        } else {
-          fprintf(stderr, "[sqzc3d] WARNING: C3D POINT:UNITS unknown; assuming mm for xyz.\n");
-        }
-      }
     } else {
       tmp.point_units_source = 0;
     }
@@ -855,7 +886,21 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     }
     tmp.point_record_scalar = (tmp.point_scale < 0.0) ? 2 : 1;
     tmp.point_record_bytes = (tmp.point_record_scalar == 2) ? 16 : 8;
-    tmp.data_start_bytes = static_cast<std::int64_t>(c3d->header().dataStart() - 1) * 512;
+    const auto data_start_blocks = static_cast<std::uint64_t>(c3d->header().dataStart());
+    if (data_start_blocks == 0u) {
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          "open_file: invalid C3D header: dataStart must be >= 1",
+          phase);
+    }
+    const auto data_start_bytes_u = (data_start_blocks - 1u) * 512u;
+    if (data_start_bytes_u > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          "open_file: invalid C3D header: dataStart is too large",
+          phase);
+    }
+    tmp.data_start_bytes = static_cast<std::int64_t>(data_start_bytes_u);
 
     const auto points_bytes = static_cast<std::int64_t>(tmp.n_points) * static_cast<std::int64_t>(tmp.point_record_bytes);
     const auto analog_bytes = static_cast<std::int64_t>(tmp.n_analog_by_frame) *
@@ -864,7 +909,10 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     const auto frame_bytes = points_bytes + analog_bytes;
     if (points_bytes < 0 || analog_bytes < 0 || frame_bytes < 0 ||
         frame_bytes > std::numeric_limits<int>::max()) {
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          "open_file: invalid point/analog shape: frame bytes overflow",
+          phase);
     }
     tmp.frame_bytes = static_cast<int>(frame_bytes);
 
@@ -893,7 +941,10 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
         header_frames = last_frame - header_first_frame + 1;
       }
       if (header_frames > std::numeric_limits<int>::max()) {
-        return sqzc3d_STATUS_INVALID_ARGUMENT;
+        return ctx.fail(
+            sqzc3d_STATUS_INVALID_ARGUMENT,
+            "open_file: invalid C3D header: frame count overflow",
+            phase);
       }
       frames = static_cast<int>(header_frames);
     }
@@ -933,11 +984,17 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       frames = 0;
     }
     if (frames < 0) {
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          "open_file: invalid frame count",
+          phase);
     }
     tmp.n_frames = frames;
     if (header_first_frame > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          "open_file: invalid C3D header: first frame index overflow",
+          phase);
     }
     tmp.first_frame = static_cast<int>(header_first_frame);
     if (tmp.n_frames <= 0) {
@@ -945,7 +1002,10 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
     } else {
       const auto last = static_cast<long long>(tmp.first_frame) + static_cast<long long>(tmp.n_frames) - 1LL;
       if (last < std::numeric_limits<int>::min() || last > std::numeric_limits<int>::max()) {
-        return sqzc3d_STATUS_INVALID_ARGUMENT;
+        return ctx.fail(
+            sqzc3d_STATUS_INVALID_ARGUMENT,
+            "open_file: invalid C3D header: last frame index overflow",
+            phase);
       }
       tmp.last_frame = static_cast<int>(last);
     }
@@ -973,60 +1033,57 @@ sqzc3d_status sqzc3d_c3d_stream_open_file(
       load_labels(reader, reader);
       load_point_type_groups(reader, reader);
     } catch (const std::exception& e) {
-      throw std::runtime_error(
-          std::string("sqzc3d_c3d_stream_open_file: label/type-groups parse failed: ") +
-          e.what());
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          std::string("open_file: label/type-groups parse failed: ") + e.what(),
+          phase);
     }
+    cleanup.release();
     return sqzc3d_STATUS_SUCCESS;
   } catch (const std::bad_alloc&) {
-    reader->file.close();
-    reader->c3d.reset();
-    return sqzc3d_STATUS_INTERNAL_ERROR;
+    return ctx.fail(
+        sqzc3d_STATUS_INTERNAL_ERROR,
+        "open_file: bad_alloc",
+        phase);
   } catch (const std::exception& e) {
-    const int char_signed = std::numeric_limits<char>::is_signed ? 1 : 0;
-    fprintf(stderr,
-            "[sqzc3d] ERROR: exception while opening C3D (%s) [phase=%s] char_signed=%d: %s\n",
-            file_path,
-            phase ? phase : "unknown",
-            char_signed,
-            e.what());
-    if (c3d) {
-      try {
-        const auto& params = c3d->parameters();
-        fprintf(stderr, "[sqzc3d] DEBUG: param groups (%zu):", params.nbGroups());
-        for (std::size_t i = 0; i < params.nbGroups(); ++i) {
-          fprintf(stderr, " %s", params.group(i).name().c_str());
-        }
-        fprintf(stderr, "\n");
-      } catch (...) {
-        // Best-effort debug only.
-      }
-    }
-    reader->file.close();
-    reader->c3d.reset();
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(
+        sqzc3d_STATUS_INVALID_ARGUMENT,
+        std::string("open_file: exception: ") + e.what(),
+        phase);
   } catch (...) {
-    reader->file.close();
-    reader->c3d.reset();
-    return sqzc3d_STATUS_INTERNAL_ERROR;
+    return ctx.fail(
+        sqzc3d_STATUS_INTERNAL_ERROR,
+        "open_file: unknown exception",
+        phase);
   }
 }
 
 sqzc3d_status sqzc3d_c3d_stream_set_target_unit(
     C3dStreamReader* reader,
     const char* unit_token) {
-  if (!reader || !reader->c3d || !unit_token) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  ApiCtx ctx("sqzc3d_c3d_stream_set_target_unit");
+  if (!reader || !reader->c3d || !unit_token) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "set_target_unit: invalid argument", "args");
+  }
   const double upm = units_per_meter_from_unit_token(unit_token);
-  if (!(upm > 0.0) || !std::isfinite(upm)) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!(upm > 0.0) || !std::isfinite(upm)) {
+    return ctx.fail(
+        sqzc3d_STATUS_INVALID_ARGUMENT,
+        std::string("set_target_unit: unknown unit token: ") + unit_token,
+        "args");
+  }
   return sqzc3d_c3d_stream_set_target_units_per_meter(reader, upm);
 }
 
 sqzc3d_status sqzc3d_c3d_stream_set_target_units_per_meter(
     C3dStreamReader* reader,
     double units_per_meter) {
-  if (!reader || !reader->c3d) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  ApiCtx ctx("sqzc3d_c3d_stream_set_target_units_per_meter");
+  if (!reader || !reader->c3d) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "set_target_units_per_meter: invalid argument", "args");
+  }
   if (!(units_per_meter > 0.0) || !std::isfinite(units_per_meter)) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "set_target_units_per_meter: units_per_meter must be > 0", "args");
   }
   auto& meta = reader->meta;
   meta.target_units_per_meter = units_per_meter;
@@ -1038,6 +1095,7 @@ void sqzc3d_c3d_stream_close(C3dStreamReader* reader) {
   if (!reader) return;
   if (reader->file.is_open()) reader->file.close();
   reader->c3d.reset();
+  reader->meta = {};
   reader->point_labels.clear();
   reader->analog_labels.clear();
   reader->type_group_names.clear();
@@ -1052,16 +1110,25 @@ sqzc3d_status sqzc3d_c3d_stream_point_indices_for_labels(
     int* out_indices,
     int miss_idx,
     int norm_mode) {
-  if (!reader || !reader->c3d) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  if (n_labels < 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  if (n_labels > 0 && (!labels || !out_indices)) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  ApiCtx ctx("sqzc3d_c3d_stream_point_indices_for_labels");
+  if (!reader || !reader->c3d) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "point_indices_for_labels: reader is not opened", "args");
+  }
+  if (n_labels < 0) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "point_indices_for_labels: n_labels must be >= 0", "args");
+  }
+  if (n_labels > 0 && (!labels || !out_indices)) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "point_indices_for_labels: labels/out_indices must not be null", "args");
+  }
 
   for (int i = 0; i < n_labels; ++i) out_indices[i] = miss_idx;
 
   const auto& haystack = reader->point_labels;
   for (int i = 0; i < n_labels; ++i) {
     const char* want = labels[i];
-    if (!want) return sqzc3d_STATUS_INVALID_ARGUMENT;
+    if (!want) {
+      return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "point_indices_for_labels: null label pointer", "args", i);
+    }
     const auto target = normalize_label(want, norm_mode);
     int match_index = -1;
     int match_count = 0;
@@ -1077,7 +1144,12 @@ sqzc3d_status sqzc3d_c3d_stream_point_indices_for_labels(
     if (match_count == 1) {
       out_indices[i] = match_index;
     } else if (match_count > 1) {
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
+      return ctx.fail(
+          sqzc3d_STATUS_INVALID_ARGUMENT,
+          std::string("point_indices_for_labels: label selector is ambiguous under norm_mode=") +
+              std::to_string(norm_mode) + ": '" + want + "'",
+          "match",
+          i);
     }
   }
   return sqzc3d_STATUS_SUCCESS;
@@ -1092,11 +1164,14 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
     int out_nscalar,
     unsigned char* out_valid,
     int out_valid_nscalar) {
+  ApiCtx ctx("sqzc3d_c3d_stream_read_frame_xyz_sel");
   if (!reader || !reader->c3d || !out_target || !point_indices) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_xyz_sel: invalid argument", "args");
   }
-  if (out_nscalar != n_points_sel * 3) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  return read_point_block(
+  if (out_nscalar != n_points_sel * 3) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_xyz_sel: out_nscalar mismatch", "args");
+  }
+  const auto st = read_point_block(
       reader,
       frame_idx,
       point_indices,
@@ -1107,6 +1182,10 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
       nullptr,
       0,
       false);
+  if (st != sqzc3d_STATUS_SUCCESS) {
+    return ctx.fail(st, "read_frame_xyz_sel: read failed", "read");
+  }
+  return sqzc3d_STATUS_SUCCESS;
 }
 
 sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
@@ -1116,10 +1195,11 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
     int n_points_sel,
     sqzc3d_num_t* out_residual,
     int out_nscalar) {
+  ApiCtx ctx("sqzc3d_c3d_stream_read_frame_residual_sel");
   if (!reader || !reader->c3d || !out_residual || !point_indices || n_points_sel <= 0) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_residual_sel: invalid argument", "args");
   }
-  return read_point_block(
+  const auto st = read_point_block(
       reader,
       frame_idx,
       point_indices,
@@ -1130,6 +1210,10 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
       out_residual,
       out_nscalar,
       true);
+  if (st != sqzc3d_STATUS_SUCCESS) {
+    return ctx.fail(st, "read_frame_residual_sel: read failed", "read");
+  }
+  return sqzc3d_STATUS_SUCCESS;
 }
 
 sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
@@ -1137,10 +1221,17 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
     int frame_idx,
     sqzc3d_num_t* out_target,
     int out_nscalar) {
-  if (!reader || !reader->c3d || !out_target) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  ApiCtx ctx("sqzc3d_c3d_stream_read_frame_all_xyz");
+  if (!reader || !reader->c3d || !out_target) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_all_xyz: invalid argument", "args");
+  }
   const int n_points = reader->meta.n_points;
-  if (n_points <= 0) return sqzc3d_STATUS_INVALID_ARGUMENT;
-  if (out_nscalar != n_points * 3) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (n_points <= 0) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_all_xyz: no points in stream", "args");
+  }
+  if (out_nscalar != n_points * 3) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_all_xyz: out_nscalar mismatch", "args");
+  }
 
   // Avoid per-call allocations in the hot path (sqzc3d_build_chunks dense reads).
   thread_local std::vector<int> all;
@@ -1148,7 +1239,7 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
     all.resize(static_cast<std::size_t>(n_points));
     for (int i = 0; i < n_points; ++i) all[static_cast<std::size_t>(i)] = i;
   }
-  return read_point_block(
+  const auto st = read_point_block(
       reader,
       frame_idx,
       all.data(),
@@ -1159,6 +1250,10 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
       nullptr,
       0,
       false);
+  if (st != sqzc3d_STATUS_SUCCESS) {
+    return ctx.fail(st, "read_frame_all_xyz: read failed", "read");
+  }
+  return sqzc3d_STATUS_SUCCESS;
 }
 
 sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(
@@ -1171,8 +1266,9 @@ sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(
     int out_nscalar,
     unsigned char* out_valid,
     int out_valid_nscalar) {
+  ApiCtx ctx("sqzc3d_c3d_stream_read_traj_xyz_sel");
   if (!reader || !reader->c3d || !point_indices || !out_traj || n_points_sel <= 0) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_traj_xyz_sel: invalid argument", "args");
   }
   const auto& meta = reader->meta;
   int start = start_frame;
@@ -1184,13 +1280,17 @@ sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(
   }
   if (start < 0) start = 0;
   if (end > meta.n_frames) end = meta.n_frames;
-  if (start >= end) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (start >= end) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_traj_xyz_sel: empty frame range", "args");
+  }
 
   const int span = end - start;
   const int expected = span * n_points_sel * 3;
-  if (out_nscalar != expected) return sqzc3d_STATUS_DIMENSION_MISMATCH;
+  if (out_nscalar != expected) {
+    return ctx.fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "read_traj_xyz_sel: out_nscalar mismatch", "args");
+  }
   if (out_valid && out_valid_nscalar != span * n_points_sel) {
-    return sqzc3d_STATUS_DIMENSION_MISMATCH;
+    return ctx.fail(sqzc3d_STATUS_DIMENSION_MISMATCH, "read_traj_xyz_sel: out_valid_nscalar mismatch", "args");
   }
 
   const int per_frame = n_points_sel * 3;
@@ -1209,7 +1309,9 @@ sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(
         nullptr,
         0,
         false);
-    if (st != sqzc3d_STATUS_SUCCESS) return st;
+    if (st != sqzc3d_STATUS_SUCCESS) {
+      return ctx.fail(st, "read_traj_xyz_sel: read failed", "read", f);
+    }
   }
   return sqzc3d_STATUS_SUCCESS;
 }
@@ -1223,24 +1325,35 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_analogs_sel(
     int n_samples,
     sqzc3d_num_t* out_analog,
     int out_nscalar) {
+  ApiCtx ctx("sqzc3d_c3d_stream_read_frame_analogs_sel");
   if (!reader || !reader->c3d || !analog_indices || !out_analog || n_analog_sel <= 0 ||
       n_samples < 0 || start_sample < 0) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: invalid argument", "args");
   }
   const auto& meta = reader->meta;
-  if (frame_idx < 0 || frame_idx >= meta.n_frames) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (frame_idx < 0 || frame_idx >= meta.n_frames) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: frame_idx out of range", "args");
+  }
 
   for (int i = 0; i < n_analog_sel; ++i) {
     if (analog_indices[i] < 0 || analog_indices[i] >= meta.n_analogs) {
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
+      return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: analog index out of range", "args", i);
     }
   }
 
   const int end_sample = start_sample + n_samples;
   if (start_sample >= meta.n_analog_by_frame || end_sample > meta.n_analog_by_frame) {
-    return sqzc3d_STATUS_INVALID_ARGUMENT;
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: invalid sample range", "args");
   }
-  if (out_nscalar != n_samples * n_analog_sel) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (out_nscalar != n_samples * n_analog_sel) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: out_nscalar mismatch", "args");
+  }
+  if (meta.analog_record_bytes != 4 && meta.analog_record_bytes != 2) {
+    return ctx.fail(
+        sqzc3d_STATUS_NOT_IMPLEMENTED,
+        "read_frame_analogs_sel: unsupported analog_record_bytes",
+        "meta");
+  }
 
   const std::size_t frame_base = frame_start_offset(meta, frame_idx);
   const std::size_t points_bytes = static_cast<std::size_t>(meta.n_points) *
@@ -1254,12 +1367,16 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_analogs_sel(
 
   auto& file = reader->file;
   file.seekg(static_cast<std::streamoff>(start_off), std::ios::beg);
-  if (!file.good()) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!file.good()) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: file seek failed", "io");
+  }
 
   thread_local std::vector<std::uint8_t> buf;
   buf.resize(bytes_to_read);
   file.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(bytes_to_read));
-  if (!file.good()) return sqzc3d_STATUS_INVALID_ARGUMENT;
+  if (!file.good()) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_analogs_sel: file read failed", "io");
+  }
 
   for (int s = 0; s < n_samples; ++s) {
     const std::size_t sample_off = static_cast<std::size_t>(s) * sample_stride;
@@ -1284,12 +1401,10 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_analogs_sel(
         const float raw = read_f32_proc(meta.processor_type, buf.data() + rec_off);
         out_analog[out_o] = static_cast<sqzc3d_num_t>(
             (static_cast<double>(raw) - analog_offset) * scale * meta.analog_general_factor);
-      } else if (meta.analog_record_bytes == 2) {
+      } else {
         const int raw = static_cast<int>(read_i16_proc(meta.processor_type, buf.data() + rec_off));
         out_analog[out_o] = static_cast<sqzc3d_num_t>(
             (static_cast<double>(raw) - analog_offset) * scale * meta.analog_general_factor);
-      } else {
-        return sqzc3d_STATUS_NOT_IMPLEMENTED;
       }
     }
   }
