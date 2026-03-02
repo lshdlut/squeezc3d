@@ -1616,7 +1616,7 @@ sqzc3d_API int sqzc3d_build_chunks(
   if (out_chunk) *out_chunk = nullptr;
   ApiCtx ctx("sqzc3d_build_chunks", dec);
   return ctx.fail(sqzc3d_STATUS_NOT_IMPLEMENTED, "build_chunks: not implemented");
-#endif
+#else
   ApiCtx ctx("sqzc3d_build_chunks", dec);
   if (out_chunk) *out_chunk = nullptr;
   if (!dec || !opt || !out_chunk) {
@@ -2028,6 +2028,7 @@ sqzc3d_API int sqzc3d_build_chunks(
   } catch (...) {
     return ctx.fail(sqzc3d_STATUS_INTERNAL_ERROR, "build_chunks: unknown exception");
   }
+#endif
 }
 
 sqzc3d_API int sqzc3d_free_chunk(sqzc3d_chunk_t* chunk) {
