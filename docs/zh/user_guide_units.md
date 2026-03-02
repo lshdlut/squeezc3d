@@ -6,7 +6,7 @@
 - 默认不会偷偷把点坐标归一化到 `m`。
 - Streaming 模式下，如果你确实想要换算单位，可以显式指定目标单位。
 
-形象化：单位就是尺子的刻度（mm/cm/m）；默认不偷偷换尺子，但会提示你尺子是什么。
+形象化：单位就是尺子的刻度（mm/cm/m）；默认不偷偷换尺子；如果遇到 `POINT:UNITS` 缺失/未知，会按约定 fallback，但会在 meta 里留下痕迹（`meta.point_units_source`）。
 
 ## POINT:UNITS
 
@@ -14,8 +14,8 @@
 
 在 streaming 模式下：
 
-- 如果 `POINT:UNITS` 缺失，`sqzc3d` 会打印 warning 并假设 `mm`。
-- 如果 `POINT:UNITS` 存在但 token 未知，`sqzc3d` 会打印 warning 并假设 `mm`。
+- 如果 `POINT:UNITS` 缺失，`sqzc3d` 会假设 `mm`（并设置 `meta.point_units_source = 1`）。
+- 如果 `POINT:UNITS` 存在但 token 未知，`sqzc3d` 会假设 `mm`（并设置 `meta.point_units_source = 2`）。
 
 ## 不做隐式归一化
 

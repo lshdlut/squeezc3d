@@ -14,8 +14,8 @@ Mental model: units are ruler marks (mm/cm/m). Default is “don’t silently sw
 
 In streaming mode:
 
-- If `POINT:UNITS` is missing, `sqzc3d` prints a warning and assumes `mm`.
-- If `POINT:UNITS` is present but unknown, `sqzc3d` prints a warning and assumes `mm`.
+- If `POINT:UNITS` is missing, `sqzc3d` assumes `mm` (and sets `meta.point_units_source = 1`).
+- If `POINT:UNITS` is present but unknown, `sqzc3d` assumes `mm` (and sets `meta.point_units_source = 2`).
 
 ## No implicit normalization
 
