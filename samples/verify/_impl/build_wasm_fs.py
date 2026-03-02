@@ -117,6 +117,8 @@ def _stamp_expected(root: Path) -> dict:
     sqz_files = [
         root / "src" / "sqzc3d.cpp",
         root / "src" / "sqzc3d_c3d_stream.cpp",
+        root / "src" / "sqzc3d_error_internal.cpp",
+        root / "src" / "sqzc3d_error_internal.h",
         root / "include" / "sqzc3d.h",
         root / "include" / "sqzc3d_c3d_stream.h",
         root / "include" / "sqzc3d_types.h",
@@ -204,6 +206,7 @@ def main() -> None:
     src: List[Path] = [
         root / "src" / "sqzc3d.cpp",
         root / "src" / "sqzc3d_c3d_stream.cpp",
+        root / "src" / "sqzc3d_error_internal.cpp",
     ]
     src += _iter_ezc3d_cpp(ezc3d_src)
 

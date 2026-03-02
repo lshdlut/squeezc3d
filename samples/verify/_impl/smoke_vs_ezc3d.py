@@ -779,6 +779,50 @@ def _load_ezc3d_reference(file_path: Path):
             raise
 
 
+def _check_bundle_load_robustness(sqzc3d, sq_chunk) -> List[str]:
+    issues: List[str] = []
+    if not hasattr(sqzc3d, "export_bundle") or not hasattr(sqzc3d, "load_bundle"):
+        return issues
+
+    import json
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            bundle_dir = Path(td) / "bundle_dir"
+            sqzc3d.export_bundle(str(bundle_dir), sq_chunk)
+
+            loaded = sqzc3d.load_bundle(str(bundle_dir), strict=True)
+            for key in ("n_frames", "n_points", "n_points_total", "n_analogs", "n_analog_by_frame", "n_scalar"):
+                if int(loaded.meta.get(key, -1)) != int(sq_chunk.meta.get(key, -1)):
+                    issues.append(
+                        f"bundle: {key} mismatch after export/load: got={loaded.meta.get(key)} expected={sq_chunk.meta.get(key)}"
+                    )
+
+            meta_path = bundle_dir / "meta.json"
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+            # Reason is optional for backwards compatibility.
+            meta_no_reason = dict(meta)
+            meta_no_reason.pop("reason", None)
+            meta_path.write_text(json.dumps(meta_no_reason, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+            loaded_no_reason = sqzc3d.load_bundle(str(bundle_dir), strict=True)
+            if str(loaded_no_reason.meta.get("reason", "")) != "":
+                issues.append("bundle: missing reason should load as empty string")
+
+            # JSON \\uXXXX unescape should work (export uses \\u00XX for control chars).
+            control_reason = "a\x01b"
+            meta_u = dict(meta_no_reason)
+            meta_u["reason"] = control_reason
+            meta_path.write_text(json.dumps(meta_u, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+            loaded_u = sqzc3d.load_bundle(str(bundle_dir), strict=True)
+            if loaded_u.meta.get("reason", "") != control_reason:
+                issues.append("bundle: reason \\uXXXX unescape mismatch")
+    except Exception as exc:
+        issues.append(f"bundle: export/load robustness check raised: {type(exc).__name__}: {exc}")
+
+    return issues
+
+
 def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     sqzc3d = _ensure_sqzc3d_import()
     dec = sqzc3d.Decoder(str(file_path))
@@ -827,6 +871,8 @@ def run_one(file_path: Path, strict: bool = True) -> CompareReport:
     if strict:
         issues.extend(_compare_meta_counts(sq_chunk.meta, ez_meta_ref))
         issues.extend(_compare_meta_tree(sq_chunk, ez))
+
+    issues.extend(_check_bundle_load_robustness(sqzc3d, sq_chunk))
 
     return CompareReport(file=str(file_path), passed=(len(issues) == 0), details=issues)
 

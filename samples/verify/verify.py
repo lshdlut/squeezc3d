@@ -91,6 +91,8 @@ def _expected_wasm_stamp() -> dict:
     sqz_files = [
         root / "src" / "sqzc3d.cpp",
         root / "src" / "sqzc3d_c3d_stream.cpp",
+        root / "src" / "sqzc3d_error_internal.cpp",
+        root / "src" / "sqzc3d_error_internal.h",
         root / "include" / "sqzc3d.h",
         root / "include" / "sqzc3d_c3d_stream.h",
         root / "include" / "sqzc3d_types.h",
@@ -186,7 +188,7 @@ def _parse_args() -> argparse.Namespace:
     p_stress.add_argument(
         "--scenarios",
         nargs="+",
-        default=["G0", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15"],
+        default=["S00", "G0", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15"],
         help="scenario ids to run",
     )
     p_stress.add_argument("--unit-contract", choices=["meters", "raw", "auto"], default="auto")

@@ -499,6 +499,119 @@ def _status_aggregate(file_reports: list[FileReport]) -> str:
         return "WARN"
     return "PASS"
 
+def _fnv1a64(data: bytes) -> int:
+    h = 14695981039346656037
+    for b in data:
+        h ^= b
+        h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return int(h)
+
+
+def _run_scenario_S00(context: dict[str, Any], files: list[Path]) -> ScenarioReport:
+    sqzc3d = context["sqzc3d"]
+    out: list[FileReport] = []
+    notes: list[str] = []
+    metrics: dict[str, Any] = {}
+    status = "PASS"
+
+    # Synthetic bundle: ensures binding-level contiguous point slice offsets are applied.
+    try:
+        n_frames = 2
+        n_points = 5
+        pts = np.zeros((n_frames, n_points, 3), dtype=np.float64)
+        for f in range(n_frames):
+            for p in range(n_points):
+                pts[f, p, :] = [f * 1000 + p, f * 1000 + p + 100, f * 1000 + p + 200]
+        valid = np.ones((n_frames, n_points), dtype=np.uint8)
+
+        pts_bytes = pts.tobytes(order="C")
+        valid_bytes = valid.tobytes(order="C")
+        points_offset = 0
+        valid_offset = len(pts_bytes)
+
+        meta = {
+            "format": "sqzc3d_bundle_v2",
+            "schema_version": 3,
+            "endianness": "little",
+            "n_frames": int(n_frames),
+            "n_points": int(n_points),
+            "n_points_total": int(n_points),
+            "n_analogs": 0,
+            "n_analog_by_frame": 0,
+            "analog_layout": "CN",
+            "n_scalar": int(pts.size),
+            "valid_nscalar": int(valid.size),
+            "n_analog_scalar": 0,
+            "n_type_groups": 0,
+            "points_layout": "frame_major",
+            "points_pack": "aos_xyz_valid",
+            "read_policy": "dense",
+            "valid_policy": 0,
+            "residual_gate_mm": 0.0,
+            "point_scale": 1.0,
+            "header_scale": 1.0,
+            "reason": "",
+            "sections": {
+                "points_xyz": {
+                    "offset": int(points_offset),
+                    "count": int(pts.size),
+                    "byte_size": int(len(pts_bytes)),
+                    "dtype": "float64",
+                    "checksum": _fnv1a64(pts_bytes),
+                },
+                "points_valid": {
+                    "offset": int(valid_offset),
+                    "count": int(valid.size),
+                    "byte_size": int(len(valid_bytes)),
+                    "dtype": "uint8",
+                    "checksum": _fnv1a64(valid_bytes),
+                },
+                "analogs": None,
+                "analog_valid": None,
+            },
+            "point_labels": [f"p{i}" for i in range(n_points)],
+            "analog_labels": [],
+            "type_group_names": [],
+            "type_group_starts": [0],
+            "type_group_indices": [],
+        }
+
+        with tempfile.TemporaryDirectory(prefix="sqzc3d_s00_") as td:
+            d = Path(td)
+            (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+            (d / "data.bin").write_bytes(pts_bytes + valid_bytes)
+
+            chunk = sqzc3d.load_bundle(str(d), strict=True)
+
+            got = np.asarray(chunk.points([2, 3], copy=False)[0], dtype=np.float64)
+            exp = np.asarray(pts[:, 2:4, :], dtype=np.float64)
+            if got.shape != exp.shape:
+                status = "FAIL"
+                notes.append(f"contiguous slice shape mismatch: got={got.shape} expected={exp.shape}")
+            elif not bool(np.array_equal(got, exp)):
+                status = "FAIL"
+                notes.append(f"contiguous slice mismatch: got={got.tolist()} expected={exp.tolist()}")
+
+            got1 = np.asarray(chunk.points([4], copy=False)[0], dtype=np.float64)
+            exp1 = np.asarray(pts[:, 4:5, :], dtype=np.float64)
+            if got1.shape != exp1.shape:
+                status = "FAIL"
+                notes.append(f"single-index slice shape mismatch: got={got1.shape} expected={exp1.shape}")
+            elif not bool(np.array_equal(got1, exp1)):
+                status = "FAIL"
+                notes.append(f"single-index slice mismatch: got={got1.tolist()} expected={exp1.tolist()}")
+
+        if status == "PASS":
+            notes.append("synthetic contiguous slice PASS")
+        metrics["n_frames"] = n_frames
+        metrics["n_points"] = n_points
+    except Exception as exc:
+        status = "FAIL"
+        notes.append(f"synthetic bundle scenario failed: {type(exc).__name__}: {exc}")
+
+    out.append(FileReport(file="<synthetic_bundle>", status=status, notes=notes, metrics=metrics))
+    return ScenarioReport("S00", "绑定：contiguous points slice offset", _status_aggregate(out), out, [], metrics)
+
 
 def _run_scenario_G0(context: dict[str, Any], files: list[Path]) -> ScenarioReport:
     sqzc3d = context["sqzc3d"]
@@ -1322,6 +1435,7 @@ def _run_scenario_S15(context: dict[str, Any], files: list[Path]) -> ScenarioRep
 
 
 _SCENARIO_RUNNERS = {
+    "S00": _run_scenario_S00,
     "G0": _run_scenario_G0,
     "S01": _run_scenario_S01,
     "S02": _run_scenario_S02,
@@ -1341,6 +1455,7 @@ _SCENARIO_RUNNERS = {
 }
 
 _SCENARIO_NAMES = {
+    "S00": "绑定：contiguous points slice offset",
     "G0": "通用：全库抽样回归",
     "S01": "基础：points-only materialize",
     "S02": "基础：含 analog materialize",
@@ -1473,7 +1588,7 @@ def parse_args():
     p.add_argument(
         "--scenarios",
         nargs="+",
-        default=["G0", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15"],
+        default=["S00", "G0", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15"],
         help="scenario ids to run",
     )
     p.add_argument("--unit-contract", choices=["meters", "raw", "auto"], default="auto")
@@ -1508,11 +1623,13 @@ def main() -> int:
         files.extend(_collect_files_from_roots([str(r) for r in roots]))
     files = [f.expanduser().resolve() for f in files if f.suffix.lower() == ".c3d" and f.is_file()]
     files = sorted(set(files))
-    if not files:
+    allow_empty = {"S00"}
+    needs_files = any(sid not in allow_empty for sid in (args.scenarios or []))
+    if not files and needs_files:
         print("No .c3d files found. Pass files/roots via positional args or --roots.", flush=True)
         return 2
 
-    selected = _sample(files, int(args.sample), int(args.seed))
+    selected = _sample(files, int(args.sample), int(args.seed)) if files else []
     print(
         f"stress: selected {len(selected)}/{len(files)} files (seed={args.seed}, scenarios={','.join(args.scenarios)})",
         flush=True,
