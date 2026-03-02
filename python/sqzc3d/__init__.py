@@ -2,11 +2,45 @@
 
 from __future__ import annotations
 
+import importlib.machinery
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
+
 __version__ = "0.3.4"
 
 _core_import_error = None
+
+
+def _load_local_core() -> ModuleType:
+    this_dir = Path(__file__).resolve().parent
+    for suffix in importlib.machinery.EXTENSION_SUFFIXES:
+        candidate = this_dir / f"_core{suffix}"
+        if not candidate.is_file():
+            continue
+        spec = importlib.util.spec_from_file_location(f"{__name__}._core", candidate)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Failed to create an import spec for: {candidate}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(spec.name, None)
+            raise
+        return module
+    raise FileNotFoundError("Local sqzc3d._core extension module not found next to sqzc3d/__init__.py")
+
+
 try:
-    from . import _core as _core
+    _core = _load_local_core()
+except FileNotFoundError:
+    try:
+        from . import _core as _core
+    except ImportError as e:
+        _core = None
+        _core_import_error = e
 except ImportError as e:
     _core = None
     _core_import_error = e
