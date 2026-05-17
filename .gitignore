@@ -20,6 +20,7 @@ docs/zh/_build/
 /temp_*.json
 /stress_report*.json
 /build_wasm_final.py
+/todo.md
 
 # Build system artifacts
 .vs/
@@ -82,3 +83,4 @@ Thumbs.db
 .tmp_*
 *.tmp_*
 
+/.agents_arena/
