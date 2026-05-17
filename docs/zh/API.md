@@ -1,6 +1,6 @@
 # `sqzc3d` API 参考
 
-适用于 `sqzc3d` v0.3.x（ABI `SQZC3D_ABI_VERSION=3`）。
+适用于 `sqzc3d` v0.4.x（ABI `SQZC3D_ABI_VERSION=4`）。
 
 ## 头文件
 
@@ -27,6 +27,8 @@
 
 - Option structs 必须设置 `struct_size == sizeof(struct)`；请用 `sqzc3d_default_*_opt(...)` 初始化。
 - `sqzc3d_default_build_opt(...)` 默认会 materialize analogs（`analog_enable = sqzc3d_ANALOG_EN_ON`）。
+- `sqzc3d_build_opt_t::target_unit` 可将 materialized 的 `chunk->points_xyz` 转成 `mm`、`cm`、`m`
+  或 `km`；`NULL`/空字符串表示保持 source units。
 - 当 `analog_enable = sqzc3d_ANALOG_EN_AUTO` 时，`sqzc3d_build_chunks` 会强制 `analog_size_soft_limit_bytes`
   （默认 `500 MiB`），若预计 analog payload 超过该限制则以 `sqzc3d_STATUS_INVALID_ARGUMENT` 失败。
 
@@ -60,8 +62,24 @@
 | `sqzc3d_chunk_meta_tree_json` | 可选的 `meta_tree` 快照（UTF-8 JSON；若可用）。 |
 | `sqzc3d_chunk_time_axis` | 可选的时间轴元数据（源 first/last frame、采样率、窗口起点）。 |
 | `sqzc3d_point_indices_for_labels` / `sqzc3d_analog_indices_for_labels` | labels -> indices 映射。 |
-| `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` | 按 frame 或 index list 构建 points views。 |
+| `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` / `sqzc3d_points_view_frame_points` | 按 frame、index list 或 selected frame+points 构建 points views。 |
 | `sqzc3d_analogs_view_samples` / `sqzc3d_analogs_view_channels` | 按 sample range 或 channel list 构建 analog views。 |
+
+Chunk point payload：
+
+- `chunk->points_xyz`：frame-major `[T][P][3]`；若设置 `target_unit`，这里已经完成单位转换。
+- `chunk->points_valid`：frame-major `[T][P]`。
+- `chunk->points_residual`：frame-major `[T][P]`；raw decoded residual，保持 source point units。
+- `chunk->residual_nscalar`：residual 可用时为 `T * P`。
+- 单位元数据：`point_units_per_meter`、`target_units_per_meter`、`residual_units_per_meter`、
+  `point_units_source`。
+
+Residual validity policy：
+
+- 默认 `sqzc3d_VALID_POLICY_FINITE_XYZ` 只按 finite xyz 判定 valid。
+- `sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE` 会额外应用 `residual_gate_mm`。
+- `residual_gate_mm` 永远以 millimeters 表示；sqzc3d 内部会换算到 residual source units 后比较。
+- `points_residual` 始终可读，不受 valid policy 影响，也不会随 `target_unit` 缩放。
 
 ## Bundle 持久化
 
@@ -83,11 +101,13 @@
 
 - `points_layout = sqzc3d_POINTS_LAYOUT_FRAME_MAJOR`
 - `points_pack = sqzc3d_POINTS_PACK_AOS_XYZ_VALID`
-- 默认 easy 层契约：`PointWindow` 为 frame-major，AoS XYZ；`valid` 为 frame-major [T][K]。
+- 默认 easy 层契约：`PointWindow` 为 frame-major，AoS XYZ；`valid` 与 `residual` 为 frame-major [T][K]。
   - `points_xyz_shape = [n_frames][n_points][3]`（contiguous）
   - `points_xyz_stride = [n_points*3, 3, 1]`
   - `points_valid_shape = [n_frames][n_points]`（contiguous）
   - `points_valid_stride = [n_points, 1]`
+  - `points_residual_shape = [n_frames][n_points]`（contiguous）
+  - `points_residual_stride = [n_points, 1]`
 - v0.x 默认 analog layout 为 channel-major `(C, N)`：
   - `analog_shape = [n_analogs][n_frames*n_analog_by_frame]`（contiguous）
   - `analog_stride = [n_frames*n_analog_by_frame, 1]`
@@ -136,14 +156,15 @@
   - input type：`sqzc3d_FILE`、`sqzc3d_MEMORY`
   - selection mode：indices/labels/all
   - read policy：`AUTO`、`DENSE`、`SPARSE`
-  - valid policy：`sqzc3d_VALID_POLICY_FINITE_XYZ`
+  - valid policy：`sqzc3d_VALID_POLICY_FINITE_XYZ`、
+    `sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE`
 
 ## 备注
 
 - API 与 C89 兼容（C++ 可通过 `extern "C"` 使用）。
 - 所有非 `const` out-parameters 都要求 caller 提供可写内存。
 - 由本库分配的资源必须使用对应的 `free` APIs 释放。
-- v0.x 暂不提供 residual/camera-mask 的 public payload；若下游需要，可通过 request/extension 添加。
+- public residual payload 已提供为 raw source-unit decoded residual；camera mask 还不是 public payload。
 
 ## Python API
 
@@ -170,7 +191,7 @@ Python 高层导出：
 
 `read`：
 
-- `sqzc3d.read(source, *, start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, label_norm=..., recipe=None) -> View`
+- `sqzc3d.read(source, *, start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, label_norm=..., recipe=None, target_unit=None) -> View`
 
 选择器语义（Python）：
 
@@ -185,9 +206,11 @@ Python 高层导出：
   - `view.type_groups`（`list[str]`）
 - Data（properties）：
   - `view.points` / `view.points_valid`
+  - `view.points_residual`
   - `view.analogs` / `view.analogs_valid`
 - Label accessors：
   - `view.point["LANK"]` / `view.point_valid["LANK"]`
+  - `view.point_residual["LANK"]`
   - `view.analog["EMG1"]` / `view.analog_valid["EMG1"]`
 - Metadata：
   - `view.meta`（flat dict）
@@ -202,7 +225,7 @@ Notes：
 `Decoder`：
 
 - `Decoder(path, label_norm=sqzc3d.SQZC3D_LABEL_NORM_EXACT)`
-- `Decoder.read(start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None)`
+- `Decoder.read(start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, target_unit="")`
 - `Decoder.close()`
 - `Decoder.source_path`（只读）
 - `Decoder.closed`（只读 bool）
@@ -210,6 +233,7 @@ Notes：
 `Chunk`：
 
 - `chunk.points(selector=None, copy=True) -> (values, valid)`
+- `chunk.residual(selector=None, copy=True) -> residual`
 - `chunk.analogs(selector=None, layout="CN", copy=True) -> (values, valid)`
   - `layout="tcs"` 会返回一个非连续的 frame-major view `(T, C, S)`（底层仍为 channel-major 存储）。
 - `chunk.meta`（dict）
@@ -219,6 +243,7 @@ Notes：
 Python payload 语义：
 
 - `points` values：`float64`，默认 frame-major shape `(T, P, 3)`，valid mask `(T, P)` dtype `uint8`。
+- `residual` values：`float64`，默认 frame-major shape `(T, P)`，source point units。
 - `analogs` values：
   - `layout="CN"` 默认：`(C, N)`，其中 `N = n_frames * n_analog_by_frame`
   - `layout="tcs"`：`(T, C, S)` non-contiguous view helper

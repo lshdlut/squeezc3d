@@ -16,8 +16,14 @@ Materialize and streaming both define:
 
 - `points_xyz`: point coordinates.
 - `points_valid`: `uint8` mask (same indexing as points).
+- `points_residual`: raw decoded residual in source point units.
 
 If a point is invalid, `points_valid` is `0`.
+
+By default, point validity is `FINITE_XYZ`: valid means all xyz components are finite. If you explicitly set
+`sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE`, `residual_gate_mm` is also applied. The gate threshold is
+specified in millimeters and converted internally to residual source units before comparison. Raw residual remains
+readable regardless of the validity policy.
 
 In Python:
 
@@ -27,6 +33,7 @@ import sqzc3d as sq
 v = sq.read("trial.c3d")
 pts = v.points
 valid = v.points_valid
+res = v.points_residual
 ```
 
 ## Analogs

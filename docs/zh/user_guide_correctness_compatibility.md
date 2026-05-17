@@ -253,7 +253,7 @@ python samples/verify/verify.py stress --c3d path/to/c3d_dir --sample 0 --report
 快照元数据：
 
 - 日期：**2026-02-27**
-- `sqzc3d`：**v0.3.4**（Python bindings）
+- `sqzc3d`：**v0.4.0**（Python bindings）
 - `ezc3d`（Python oracle）：**1.6.0**
 - 平台：Windows（native + WASM）
 

@@ -4,7 +4,7 @@ Quick summary:
 
 - `POINT:UNITS` is metadata describing the length unit of point coordinates.
 - By default, `sqzc3d` does not implicitly normalize point coordinates to meters.
-- In streaming mode, you can request an explicit target unit when you want conversion.
+- In streaming mode and chunk building, you can request an explicit target unit when you want conversion.
 
 Mental model: units are ruler marks (mm/cm/m). Default is “don’t silently swap rulers”.
 
@@ -21,9 +21,9 @@ In streaming mode:
 
 By default, `sqzc3d` does not implicitly normalize point coordinates to meters.
 
-Streaming mode returns raw units by default (typically `mm`).
+Streaming mode and chunk building return source units by default (typically `mm`).
 
-## Explicit scaling in streaming mode
+## Explicit scaling
 
 If downstream code wants a specific unit, it can request it explicitly:
 
@@ -50,3 +50,20 @@ Advanced:
 
 - `sqzc3d::sqzc3d_c3d_stream_set_target_units_per_meter(&r, 1.0)` means meters.
 - `sqzc3d::sqzc3d_c3d_stream_set_target_units_per_meter(&r, 1000.0)` means millimeters.
+
+Chunk building uses the same unit parser:
+
+```cpp
+sqzc3d_build_opt_t opt = {};
+sqzc3d_default_build_opt(&opt);
+opt.target_unit = "m";
+sqzc3d_build_chunks(dec, &opt, &chunk);
+```
+
+`target_unit` only scales `chunk->points_xyz`. `chunk->points_residual` is raw decoded residual in source
+point units and is not scaled. Metadata fields record the unit context:
+
+- `chunk->point_units_per_meter`
+- `chunk->target_units_per_meter`
+- `chunk->residual_units_per_meter`
+- `chunk->point_units_source`
