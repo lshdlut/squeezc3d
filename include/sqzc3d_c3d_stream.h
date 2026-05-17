@@ -130,7 +130,20 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
     unsigned char* out_valid,
     int out_valid_nscalar);
 
-// Read residual for selected point xyz for one frame.
+// Read selected point xyz, valid, and residual for one frame.
+sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_residual_sel(
+    C3dStreamReader* reader,
+    int frame_idx,
+    const int* point_indices,
+    int n_points_sel,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar);
+
+// Read residual for selected points for one frame.
 sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
     C3dStreamReader* reader,
     int frame_idx,
@@ -145,6 +158,17 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
     int frame_idx,
     sqzc3d_num_t* out_target,
     int out_nscalar);
+
+// Read all point xyz, valid, and residual for one frame; no selection.
+sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz_residual(
+    C3dStreamReader* reader,
+    int frame_idx,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar);
 
 // Read trajectory for selected points: layout frame-major [T x (n_points_sel*3)].
 sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(

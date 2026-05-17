@@ -1188,6 +1188,41 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
   return sqzc3d_STATUS_SUCCESS;
 }
 
+sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_residual_sel(
+    C3dStreamReader* reader,
+    int frame_idx,
+    const int* point_indices,
+    int n_points_sel,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar) {
+  ApiCtx ctx("sqzc3d_c3d_stream_read_frame_xyz_residual_sel");
+  if (!reader || !reader->c3d || !out_target || !out_residual || !point_indices || n_points_sel <= 0) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_xyz_residual_sel: invalid argument", "args");
+  }
+  if (out_nscalar != n_points_sel * 3) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_xyz_residual_sel: out_nscalar mismatch", "args");
+  }
+  const auto st = read_point_block(
+      reader,
+      frame_idx,
+      point_indices,
+      n_points_sel,
+      out_target,
+      out_valid,
+      out_valid_nscalar,
+      out_residual,
+      out_residual_nscalar,
+      true);
+  if (st != sqzc3d_STATUS_SUCCESS) {
+    return ctx.fail(st, "read_frame_xyz_residual_sel: read failed", "read");
+  }
+  return sqzc3d_STATUS_SUCCESS;
+}
+
 sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
     C3dStreamReader* reader,
     int frame_idx,
@@ -1252,6 +1287,49 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
       false);
   if (st != sqzc3d_STATUS_SUCCESS) {
     return ctx.fail(st, "read_frame_all_xyz: read failed", "read");
+  }
+  return sqzc3d_STATUS_SUCCESS;
+}
+
+sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz_residual(
+    C3dStreamReader* reader,
+    int frame_idx,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar) {
+  ApiCtx ctx("sqzc3d_c3d_stream_read_frame_all_xyz_residual");
+  if (!reader || !reader->c3d || !out_target || !out_residual) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_all_xyz_residual: invalid argument", "args");
+  }
+  const int n_points = reader->meta.n_points;
+  if (n_points <= 0) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_all_xyz_residual: no points in stream", "args");
+  }
+  if (out_nscalar != n_points * 3) {
+    return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "read_frame_all_xyz_residual: out_nscalar mismatch", "args");
+  }
+
+  thread_local std::vector<int> all;
+  if (static_cast<int>(all.size()) != n_points) {
+    all.resize(static_cast<std::size_t>(n_points));
+    for (int i = 0; i < n_points; ++i) all[static_cast<std::size_t>(i)] = i;
+  }
+  const auto st = read_point_block(
+      reader,
+      frame_idx,
+      all.data(),
+      n_points,
+      out_target,
+      out_valid,
+      out_valid_nscalar,
+      out_residual,
+      out_residual_nscalar,
+      true);
+  if (st != sqzc3d_STATUS_SUCCESS) {
+    return ctx.fail(st, "read_frame_all_xyz_residual: read failed", "read");
   }
   return sqzc3d_STATUS_SUCCESS;
 }
@@ -1488,6 +1566,30 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
   return static_cast<sqzc3d_status>(sqzc3d_STATUS_NOT_IMPLEMENTED);
 }
 
+sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_residual_sel(
+    C3dStreamReader* reader,
+    int frame_idx,
+    const int* point_indices,
+    int n_points_sel,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar) {
+  (void)reader;
+  (void)frame_idx;
+  (void)point_indices;
+  (void)n_points_sel;
+  (void)out_target;
+  (void)out_nscalar;
+  (void)out_valid;
+  (void)out_valid_nscalar;
+  (void)out_residual;
+  (void)out_residual_nscalar;
+  return static_cast<sqzc3d_status>(sqzc3d_STATUS_NOT_IMPLEMENTED);
+}
+
 sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
     C3dStreamReader* reader,
     int frame_idx,
@@ -1513,6 +1615,26 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
   (void)frame_idx;
   (void)out_target;
   (void)out_nscalar;
+  return static_cast<sqzc3d_status>(sqzc3d_STATUS_NOT_IMPLEMENTED);
+}
+
+sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz_residual(
+    C3dStreamReader* reader,
+    int frame_idx,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar) {
+  (void)reader;
+  (void)frame_idx;
+  (void)out_target;
+  (void)out_nscalar;
+  (void)out_valid;
+  (void)out_valid_nscalar;
+  (void)out_residual;
+  (void)out_residual_nscalar;
   return static_cast<sqzc3d_status>(sqzc3d_STATUS_NOT_IMPLEMENTED);
 }
 
