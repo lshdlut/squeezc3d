@@ -58,8 +58,12 @@ class View:
     type_groups_missing_meta: str = "all"
 
     _meta: dict = field(init=False, repr=False)
+    _point_indices_cache_key: tuple | None = field(init=False, default=None, repr=False)
+    _point_indices_cache: list[int] | None = field(init=False, default=None, repr=False)
     _points_cache_key: tuple | None = field(init=False, default=None, repr=False)
     _points_cache: tuple | None = field(init=False, default=None, repr=False)
+    _residual_cache_key: tuple | None = field(init=False, default=None, repr=False)
+    _residual_cache: object | None = field(init=False, default=None, repr=False)
     _analogs_cache_key: tuple | None = field(init=False, default=None, repr=False)
     _analogs_cache: tuple | None = field(init=False, default=None, repr=False)
 
@@ -134,6 +138,15 @@ class View:
         tg = tuple(self.type_groups or ())
         return (pl, tg, bool(self.type_groups_strict), str(self.type_groups_missing_meta))
 
+    def _effective_point_indices_cached(self) -> list[int] | None:
+        key = self._points_query_key()
+        if self._point_indices_cache_key == key:
+            return self._point_indices_cache
+        out = self._effective_point_indices()
+        self._point_indices_cache_key = key
+        self._point_indices_cache = out
+        return out
+
     def _analogs_query_key(self) -> tuple:
         al = None if self.analog_labels is None else tuple(self.analog_labels)
         return (al, str(self.analog_layout))
@@ -142,7 +155,7 @@ class View:
         key = self._points_query_key()
         if self._points_cache_key == key and self._points_cache is not None:
             return self._points_cache
-        idx = self._effective_point_indices()
+        idx = self._effective_point_indices_cached()
         if idx is None:
             out = self._chunk.points(None, copy=False)
             self._points_cache_key = key
@@ -152,6 +165,22 @@ class View:
         out = self._chunk.points(idx, copy=copy)
         self._points_cache_key = key
         self._points_cache = out
+        return out
+
+    def _points_residual_array(self):
+        key = self._points_query_key()
+        if self._residual_cache_key == key and self._residual_cache is not None:
+            return self._residual_cache
+        idx = self._effective_point_indices_cached()
+        if idx is None:
+            out = self._chunk.residual(None, copy=False)
+            self._residual_cache_key = key
+            self._residual_cache = out
+            return out
+        copy = not _is_contiguous(idx)
+        out = self._chunk.residual(idx, copy=copy)
+        self._residual_cache_key = key
+        self._residual_cache = out
         return out
 
     def _analogs_tuple(self):
@@ -182,6 +211,10 @@ class View:
         return valid
 
     @property
+    def points_residual(self):
+        return self._points_residual_array()
+
+    @property
     def analogs(self):
         values, _valid = self._analogs_tuple()
         return values
@@ -198,6 +231,10 @@ class View:
     @property
     def point_valid(self):
         return _PointAccessor(self, want_valid=True)
+
+    @property
+    def point_residual(self):
+        return _PointResidualAccessor(self)
 
     @property
     def analog(self):
@@ -219,6 +256,15 @@ class _PointAccessor:
         if self._want_valid:
             return valid[:, 0]
         return values[:, 0, :]
+
+
+class _PointResidualAccessor:
+    def __init__(self, view: View) -> None:
+        self._view = view
+
+    def __getitem__(self, label: str):
+        values = self._view._chunk.residual(label, copy=False)
+        return values[:, 0]
 
 
 class _AnalogAccessor:
@@ -250,6 +296,7 @@ def read(
     label_norm: int = int(_core.SQZC3D_LABEL_NORM_EXACT),
     recipe=None,
     bundle_strict: bool = True,
+    target_unit: str | None = None,
 ) -> View:
     """Read a C3D file/buffer (materialize) or load a .sqzc3d bundle.
 
@@ -263,10 +310,13 @@ def read(
 
     points_norm = _normalize_label_list(points, field="points")
     analogs_norm = _normalize_label_list(analogs, field="analogs")
+    target_unit_arg = "" if target_unit is None else str(target_unit)
 
     if isinstance(source, (str, Path)):
         p = Path(source)
         if p.is_dir() or str(p).lower().endswith(".sqzc3d"):
+            if target_unit_arg:
+                raise ValueError("target_unit only applies when building from C3D data")
             chunk = _core.load_bundle(str(p), strict=bool(bundle_strict))
             view = View(_chunk=chunk, point_labels=points_norm, analog_labels=analogs_norm)
         else:
@@ -277,6 +327,7 @@ def read(
                 points=points_norm,
                 analogs=analogs_norm,
                 analog_range=analog_range,
+                target_unit=target_unit_arg,
             )
             dec.close()
             view = View(_chunk=chunk, point_labels=points_norm, analog_labels=analogs_norm)
@@ -288,6 +339,7 @@ def read(
             points=points_norm,
             analogs=analogs_norm,
             analog_range=analog_range,
+            target_unit=target_unit_arg,
         )
         dec.close()
         view = View(_chunk=chunk, point_labels=points_norm, analog_labels=analogs_norm)

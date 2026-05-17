@@ -165,6 +165,44 @@ std::vector<int> ResolvePointLabelIndices(const sqzc3d_chunk_t* chunk, const std
   return out;
 }
 
+struct PointViewSelection {
+  std::vector<int> indices;
+  sqzc3d_points_view_t view{};
+};
+
+void BuildPointViewSelection(
+    const sqzc3d_chunk_t* chunk,
+    const py::handle& selector,
+    const char* selector_name,
+    PointViewSelection* out) {
+  if (!chunk) throw std::runtime_error("chunk is not available");
+  if (!out) throw std::runtime_error("point view selection output is not available");
+  *out = PointViewSelection{};
+
+  const auto parsed = ParseSelectorArg(selector, selector_name);
+  if (parsed.kind == SelectorKind::kAll) {
+    CheckStatus(
+        sqzc3d_points_view_frames(chunk, 0, chunk->n_frames, &out->view),
+        "sqzc3d_points_view_frames");
+    return;
+  }
+
+  if (parsed.kind == SelectorKind::kIndices) {
+    out->indices = parsed.indices;
+  } else if (parsed.kind == SelectorKind::kLabels) {
+    out->indices = ResolvePointLabelIndices(chunk, parsed.labels);
+  }
+  for (const auto idx : out->indices) {
+    if (idx < 0 || idx >= chunk->n_points) {
+      throw py::index_error("point index out of range");
+    }
+  }
+  const int* ptr = out->indices.empty() ? nullptr : out->indices.data();
+  CheckStatus(
+      sqzc3d_points_view_points(chunk, ptr, static_cast<int>(out->indices.size()), &out->view),
+      "sqzc3d_points_view_points");
+}
+
 std::vector<int> ResolveAnalogLabelIndices(const sqzc3d_chunk_t* chunk, const std::vector<std::string>& labels) {
   std::vector<const char*> ptrs;
   ptrs.reserve(labels.size());
@@ -265,12 +303,14 @@ struct PyDecoder {
       int frame_count,
       py::object points_selector,
       py::object analog_selector,
-      py::object analog_range) {
+      py::object analog_range,
+      const std::string& target_unit) {
     if (!handle.dec) throw std::runtime_error("decoder closed");
     sqzc3d_build_opt_t opt{};
     sqzc3d_default_build_opt(&opt);
     opt.frame_range = {start_frame, frame_count};
     opt.analog_range = ParseRangeArg(analog_range, "analog_range");
+    opt.target_unit = target_unit.empty() ? nullptr : target_unit.c_str();
 
     const auto p_sel = ParseSelectorArg(points_selector, "points");
     const auto a_sel = ParseSelectorArg(analog_selector, "analogs");
@@ -395,35 +435,9 @@ struct PyChunk {
     const auto* chunk = holder_->chunk;
     if (!chunk) throw std::runtime_error("chunk is not available");
 
-    const auto parsed = ParseSelectorArg(selector, "selector");
-    std::vector<int> point_indices;
-    if (parsed.kind == SelectorKind::kIndices) {
-      point_indices = parsed.indices;
-    } else if (parsed.kind == SelectorKind::kLabels) {
-      point_indices = ResolvePointLabelIndices(chunk, parsed.labels);
-    }
-    if (!point_indices.empty()) {
-      for (const auto idx : point_indices) {
-        if (idx < 0 || idx >= chunk->n_points) {
-          throw py::index_error("point index out of range");
-        }
-      }
-    }
-
-    sqzc3d_points_view_t view{};
-    if (parsed.kind == SelectorKind::kAll) {
-      view.points_xyz = chunk->points_xyz;
-      view.points_valid = chunk->points_valid;
-      view.n_frames = chunk->n_frames;
-      view.n_points = chunk->n_points;
-      view.source_stride_points = chunk->n_points;
-      view.source_point_offset = 0;
-      view.point_indices = nullptr;
-    } else {
-      const int* ptr = point_indices.empty() ? nullptr : point_indices.data();
-      CheckStatus(sqzc3d_points_view_points(chunk, ptr, static_cast<int>(point_indices.size()), &view),
-                  "sqzc3d_points_view_points");
-    }
+    PointViewSelection selection;
+    BuildPointViewSelection(chunk, selector, "selector", &selection);
+    const auto& view = selection.view;
     if (view.n_frames == 0) {
       std::vector<py::ssize_t> vshape = {0, static_cast<py::ssize_t>(view.n_points), 3};
       std::vector<py::ssize_t> vshape_valid = {0, static_cast<py::ssize_t>(view.n_points)};
@@ -511,6 +525,55 @@ struct PyChunk {
     py::array_t<unsigned char> valid =
         MakeArrayNoCopy(base_valid, vshape_valid, vstrides_valid, py::cast(*this));
     return py::make_tuple(values, valid);
+  }
+
+  py::array_t<sqzc3d_num_t> residual(py::object selector, bool copy) const {
+    const auto* chunk = holder_->chunk;
+    if (!chunk) throw std::runtime_error("chunk is not available");
+
+    PointViewSelection selection;
+    BuildPointViewSelection(chunk, selector, "selector", &selection);
+    const auto& view = selection.view;
+
+    std::vector<py::ssize_t> shape = {static_cast<py::ssize_t>(view.n_frames),
+                                      static_cast<py::ssize_t>(view.n_points)};
+    if (view.n_frames == 0 || view.n_points == 0) {
+      return py::array_t<sqzc3d_num_t>(shape);
+    }
+    if (!view.points_residual) {
+      throw std::runtime_error("point residual data is not available");
+    }
+
+    const bool contiguous = (view.point_indices == nullptr);
+    if (!copy && !contiguous) {
+      throw std::runtime_error("non-contiguous residual selection requires copy=True");
+    }
+
+    std::vector<py::ssize_t> strides = {
+        static_cast<py::ssize_t>(view.source_stride_points * sizeof(sqzc3d_num_t)),
+        static_cast<py::ssize_t>(sizeof(sqzc3d_num_t))};
+
+    if (!contiguous) {
+      auto values = py::array_t<sqzc3d_num_t>(shape);
+      auto* dst = static_cast<sqzc3d_num_t*>(values.mutable_data());
+      const int n_frames = view.n_frames;
+      const int n_points = view.n_points;
+      for (int f = 0; f < n_frames; ++f) {
+        const auto dst_base = static_cast<std::size_t>(f) * static_cast<std::size_t>(n_points);
+        const auto src_base = static_cast<std::size_t>(f) * static_cast<std::size_t>(view.source_stride_points);
+        for (int p = 0; p < n_points; ++p) {
+          dst[dst_base + static_cast<std::size_t>(p)] =
+              view.points_residual[src_base + static_cast<std::size_t>(view.point_indices[static_cast<std::size_t>(p)])];
+        }
+      }
+      return values;
+    }
+
+    const sqzc3d_num_t* base_residual = view.points_residual;
+    if (view.source_point_offset > 0) {
+      base_residual += static_cast<std::size_t>(view.source_point_offset);
+    }
+    return MakeArrayNoCopy(base_residual, shape, strides, py::cast(*this));
   }
 
   py::tuple analogs(py::object selector, const std::string& layout, bool copy) const {
@@ -699,6 +762,7 @@ struct PyChunk {
     out["n_analog_by_frame"] = chunk->n_analog_by_frame;
     out["n_scalar"] = chunk->n_scalar;
     out["valid_nscalar"] = chunk->valid_nscalar;
+    out["residual_nscalar"] = chunk->residual_nscalar;
     out["n_analog_scalar"] = chunk->n_analog_scalar;
     out["n_type_groups"] = chunk->n_type_groups;
     out["analog_layout"] = "CN";
@@ -709,6 +773,10 @@ struct PyChunk {
     out["residual_gate_mm"] = chunk->residual_gate_mm;
     out["point_scale"] = chunk->point_scale;
     out["header_scale"] = chunk->header_scale;
+    out["point_units_per_meter"] = chunk->point_units_per_meter;
+    out["target_units_per_meter"] = chunk->target_units_per_meter;
+    out["residual_units_per_meter"] = chunk->residual_units_per_meter;
+    out["point_units_source"] = chunk->point_units_source;
     out["reason"] = chunk->reason ? chunk->reason : "";
 
     sqzc3d_time_axis_t axis{};
@@ -898,9 +966,13 @@ PYBIND11_MODULE(_core, m) {
   m.attr("SQZC3D_FEATURE_BUILD_CHUNKS") = static_cast<int>(SQZC3D_FEATURE_BUILD_CHUNKS);
   m.attr("SQZC3D_FEATURE_BUNDLE") = static_cast<int>(SQZC3D_FEATURE_BUNDLE);
   m.attr("SQZC3D_FEATURE_ANALOG") = static_cast<int>(SQZC3D_FEATURE_ANALOG);
+  m.attr("SQZC3D_FEATURE_POINT_RESIDUAL") = static_cast<int>(SQZC3D_FEATURE_POINT_RESIDUAL);
   m.attr("SQZC3D_LABEL_NORM_EXACT") = static_cast<int>(sqzc3d_LABEL_NORM_EXACT);
   m.attr("SQZC3D_LABEL_NORM_TRIM") = static_cast<int>(sqzc3d_LABEL_NORM_TRIM);
   m.attr("SQZC3D_LABEL_NORM_CASEFOLD_WS") = static_cast<int>(sqzc3d_LABEL_NORM_CASEFOLD_WS);
+  m.attr("SQZC3D_VALID_POLICY_FINITE_XYZ") = static_cast<int>(sqzc3d_VALID_POLICY_FINITE_XYZ);
+  m.attr("SQZC3D_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE") =
+      static_cast<int>(sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE);
 
   m.def("version", &sqzc3d_version, "Get version string");
   m.def("abi_version", &sqzc3d_abi_version, "Get ABI version");
@@ -943,7 +1015,8 @@ PYBIND11_MODULE(_core, m) {
            py::arg("frame_count") = -1,
            py::arg("points") = py::none(),
            py::arg("analogs") = py::none(),
-           py::arg("analog_range") = py::none())
+           py::arg("analog_range") = py::none(),
+           py::arg("target_unit") = "")
       .def("close", &PyDecoder::close)
       .def_property_readonly("source_path", &PyDecoder::source_path)
       .def_property_readonly("closed", &PyDecoder::is_closed);
@@ -952,6 +1025,7 @@ PYBIND11_MODULE(_core, m) {
       .def("_point_indices_for_labels", &PyChunk::_point_indices_for_labels, py::arg("labels"))
       .def("_analog_indices_for_labels", &PyChunk::_analog_indices_for_labels, py::arg("labels"))
       .def("points", &PyChunk::points, py::arg("selector") = py::none(), py::arg("copy") = true)
+      .def("residual", &PyChunk::residual, py::arg("selector") = py::none(), py::arg("copy") = true)
       .def("analogs", &PyChunk::analogs, py::arg("selector") = py::none(), py::arg("layout") = "CN",
            py::arg("copy") = true)
       .def_property_readonly("meta", &PyChunk::meta)
