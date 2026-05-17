@@ -200,6 +200,7 @@ def main() -> None:
         "_sqzc3d_chunk_num_scalar",
         "_sqzc3d_points_view_frames",
         "_sqzc3d_points_view_points",
+        "_sqzc3d_points_view_frame_points",
         "_sqzc3d_chunk_point_indices_total",
     ]
 
@@ -213,7 +214,20 @@ def main() -> None:
     # Note: Pass list syntax directly to Emscripten without extra escaping, since we don't invoke a shell.
     exported_list = "[" + ",".join([f"'{e}'" for e in exported]) + "]"
     runtime_methods = "[" + ",".join(
-        [f"'{m}'" for m in ["ccall", "cwrap", "setValue", "getValue", "UTF8ToString", "stringToUTF8", "lengthBytesUTF8"]]
+        [
+            f"'{m}'"
+            for m in [
+                "ccall",
+                "cwrap",
+                "setValue",
+                "getValue",
+                "UTF8ToString",
+                "stringToUTF8",
+                "lengthBytesUTF8",
+                "HEAPU8",
+                "HEAP32",
+            ]
+        ]
     ) + "]"
 
     cmd = [
