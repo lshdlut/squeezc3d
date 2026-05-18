@@ -261,7 +261,7 @@ For up-to-date results, run the commands above.
 Snapshot metadata:
 
 - Date: **2026-02-27**
-- `sqzc3d`: **v0.3.4** (Python bindings)
+- `sqzc3d`: **v0.4.0** (Python bindings)
 - `ezc3d` (Python oracle): **1.6.0**
 - Platform: Windows (native + WASM)
 

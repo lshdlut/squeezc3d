@@ -82,11 +82,16 @@ int main(int argc, char* argv[]) {
   std::cout << "points_total=" << chunk->n_points_total << std::endl;
   std::cout << "point_scalar=" << nScalars << std::endl;
   std::cout << "valid_scalar=" << nValid << std::endl;
+  std::cout << "residual_scalar=" << chunk->residual_nscalar << std::endl;
   std::cout << "analogs=" << chunk->n_analogs << std::endl;
   std::cout << "analog_by_frame=" << chunk->n_analog_by_frame << std::endl;
   std::cout << "analog_scalar=" << chunk->n_analog_scalar << std::endl;
   std::cout << "point_scale=" << chunk->point_scale << std::endl;
   std::cout << "header_scale=" << chunk->header_scale << std::endl;
+  std::cout << "point_units_per_meter=" << chunk->point_units_per_meter << std::endl;
+  std::cout << "target_units_per_meter=" << chunk->target_units_per_meter << std::endl;
+  std::cout << "residual_units_per_meter=" << chunk->residual_units_per_meter << std::endl;
+  std::cout << "point_units_source=" << chunk->point_units_source << std::endl;
   std::cout << "residual_gate_mm=" << chunk->residual_gate_mm << std::endl;
   if (chunk->reason) {
     std::cout << "reason=" << chunk->reason << std::endl;

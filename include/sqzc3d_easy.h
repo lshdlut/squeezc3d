@@ -11,6 +11,7 @@ namespace sqzc3d {
 struct PointWindow {
   const sqzc3d_num_t* xyz = nullptr;
   const unsigned char* valid = nullptr;
+  const sqzc3d_num_t* residual = nullptr;
   int n_frames = 0;
   int n_points = 0;
   // v0.x easy layer fixed-shape output contract:
@@ -142,6 +143,7 @@ inline PointWindow FrameMajorPointsView(const sqzc3d_chunk_t* chunk) {
   if (!chunk) return view;
   view.xyz = chunk->points_xyz;
   view.valid = chunk->points_valid;
+  view.residual = chunk->points_residual;
   view.n_frames = chunk->n_frames;
   view.n_points = chunk->n_points;
   view.point_stride = 3;

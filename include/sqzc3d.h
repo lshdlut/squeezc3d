@@ -28,13 +28,14 @@ extern "C" {
 #define SQZC3D_FEATURE_BUILD_CHUNKS 0x4
 #define SQZC3D_FEATURE_BUNDLE 0x8
 #define SQZC3D_FEATURE_ANALOG 0x10
+#define SQZC3D_FEATURE_POINT_RESIDUAL 0x20
 
 // Public semantic version and ABI version.
 #define SQZC3D_VERSION_MAJOR 0
-#define SQZC3D_VERSION_MINOR 3
-#define SQZC3D_VERSION_PATCH 4
-#define SQZC3D_VERSION "0.3.4"
-#define SQZC3D_ABI_VERSION 3
+#define SQZC3D_VERSION_MINOR 4
+#define SQZC3D_VERSION_PATCH 0
+#define SQZC3D_VERSION "0.4.0"
+#define SQZC3D_ABI_VERSION 4
 
 typedef struct sqzc3d_range_t_ {
   int start;
@@ -80,6 +81,7 @@ enum {
 
 enum {
   sqzc3d_VALID_POLICY_FINITE_XYZ = 0,
+  sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE = 1,
 };
 
 enum {
@@ -129,6 +131,8 @@ typedef struct sqzc3d_build_opt_t_ {
   double dense_threshold_ratio;
   size_t io_buffer_bytes;
   int64_t analog_size_soft_limit_bytes;
+  // Optional target point unit token for materialized xyz. NULL/empty keeps source units.
+  const char* target_unit;
 } sqzc3d_build_opt_t;
 
 typedef struct sqzc3d_chunk_t_ {
@@ -146,6 +150,7 @@ typedef struct sqzc3d_chunk_t_ {
 
   int n_scalar;
   int valid_nscalar;
+  int residual_nscalar;
   int n_analog_scalar;
 
   int points_layout;
@@ -155,9 +160,15 @@ typedef struct sqzc3d_chunk_t_ {
   double residual_gate_mm;
   double point_scale;
   double header_scale;
+  double point_units_per_meter;
+  double target_units_per_meter;
+  double residual_units_per_meter;
+  int point_units_source;
 
   sqzc3d_num_t* points_xyz;
   unsigned char* points_valid;
+  // Point residual layout: frame-major [frame][point], in source point units.
+  sqzc3d_num_t* points_residual;
   // Analog layout: channel-major [channel][sample] (C, N), where:
   // - N = n_frames * n_analog_by_frame
   // - sample = frame * n_analog_by_frame + subframe
@@ -214,9 +225,13 @@ typedef struct sqzc3d_time_axis_t_ {
   int analog_frame_start;
 } sqzc3d_time_axis_t;
 
+// Borrowed view over sqzc3d_chunk_t point storage. The xyz/valid/residual pointers remain valid
+// only while the source chunk is alive. For gather views, point_indices is the caller-provided
+// array and must outlive any use of the view.
 typedef struct sqzc3d_points_view_t_ {
   const sqzc3d_num_t* points_xyz;
   const unsigned char* points_valid;
+  const sqzc3d_num_t* points_residual;
   int n_frames;
   int n_points;
   // Number of points per frame in the underlying chunk (stride for gather views).
@@ -227,6 +242,9 @@ typedef struct sqzc3d_points_view_t_ {
   const int* point_indices;
 } sqzc3d_points_view_t;
 
+// Borrowed view over sqzc3d_chunk_t analog storage. The analog pointers remain valid only while
+// the source chunk is alive. For gather views, channel_indices is the caller-provided array and
+// must outlive any use of the view.
 typedef struct sqzc3d_analogs_view_t_ {
   const sqzc3d_num_t* analog;
   const unsigned char* analog_valid;
@@ -259,6 +277,9 @@ sqzc3d_API int sqzc3d_open_memory(
     int n_bytes,
     const sqzc3d_open_opt_t* opt);
 sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec);
+
+// Decoder and chunk handles are not internally synchronized. Use a given decoder/chunk from
+// one thread at a time, or provide external synchronization around concurrent API calls.
 
 // Get the last error message.
 // If `dec` is NULL, returns the last error for the current thread (useful for open failures with no handle).
@@ -318,6 +339,13 @@ sqzc3d_API int sqzc3d_points_view_frames(
 
 sqzc3d_API int sqzc3d_points_view_points(
     const sqzc3d_chunk_t* chunk,
+    const int* point_indices,
+    int n,
+    sqzc3d_points_view_t* out_view);
+
+sqzc3d_API int sqzc3d_points_view_frame_points(
+    const sqzc3d_chunk_t* chunk,
+    int frame,
     const int* point_indices,
     int n,
     sqzc3d_points_view_t* out_view);

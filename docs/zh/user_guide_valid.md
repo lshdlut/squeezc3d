@@ -16,8 +16,13 @@ Materialize 与 streaming 都定义：
 
 - `points_xyz`：点坐标。
 - `points_valid`：`uint8` mask（与 points 的索引一致）。
+- `points_residual`：source point units 下的 raw decoded residual。
 
 若 point 无效，则 `points_valid` 为 `0`。
+
+默认 point validity policy 是 `FINITE_XYZ`：xyz 三个分量都是 finite 即 valid。若显式设置
+`sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE`，则会额外应用 `residual_gate_mm`。该阈值总是以
+millimeters 表示，内部会换算成 residual source units 后比较。无论 valid policy 如何，raw residual 都保持可读。
 
 在 Python 中：
 
@@ -27,6 +32,7 @@ import sqzc3d as sq
 v = sq.read("trial.c3d")
 pts = v.points
 valid = v.points_valid
+res = v.points_residual
 ```
 
 ## Analogs

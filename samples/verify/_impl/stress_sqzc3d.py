@@ -601,8 +601,41 @@ def _run_scenario_S00(context: dict[str, Any], files: list[Path]) -> ScenarioRep
                 status = "FAIL"
                 notes.append(f"single-index slice mismatch: got={got1.tolist()} expected={exp1.tolist()}")
 
+            try:
+                chunk.residual(None, copy=False)
+                status = "FAIL"
+                notes.append("schema3 residual should be unavailable")
+            except RuntimeError:
+                pass
+
+            def expect_schema3_malformed_fail(name: str, bad_meta: dict[str, Any]) -> None:
+                nonlocal status
+                bd = d / name
+                bd.mkdir(parents=True, exist_ok=True)
+                (bd / "meta.json").write_text(json.dumps(bad_meta, ensure_ascii=False), encoding="utf-8")
+                (bd / "data.bin").write_bytes(pts_bytes + valid_bytes)
+                try:
+                    sqzc3d.load_bundle(str(bd), strict=True)
+                except Exception:
+                    return
+                status = "FAIL"
+                notes.append(f"{name}: schema3 with schema4 residual fields should fail")
+
+            bad_residual_nscalar = dict(meta)
+            bad_residual_nscalar["residual_nscalar"] = int(valid.size)
+            expect_schema3_malformed_fail("schema3_residual_nscalar", bad_residual_nscalar)
+
+            bad_residual_section = dict(meta)
+            bad_residual_section["sections"] = dict(meta["sections"])
+            bad_residual_section["sections"]["points_residual"] = None
+            expect_schema3_malformed_fail("schema3_points_residual_section", bad_residual_section)
+
+            bad_unit_metadata = dict(meta)
+            bad_unit_metadata["point_units_per_meter"] = 1000.0
+            expect_schema3_malformed_fail("schema3_unit_metadata", bad_unit_metadata)
+
         if status == "PASS":
-            notes.append("synthetic contiguous slice PASS")
+            notes.append("synthetic contiguous slice/schema3 compatibility PASS")
         metrics["n_frames"] = n_frames
         metrics["n_points"] = n_points
     except Exception as exc:

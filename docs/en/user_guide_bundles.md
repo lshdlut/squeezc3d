@@ -5,7 +5,7 @@ Quick summary:
 - A bundle is a cache format for fast reloads.
 - Prefer the single-file bundle `*.sqzc3d`.
 - `sqzc3d.read(...)` auto-detects bundles; strict vs best-effort is configurable.
-- Bundles preserve key metadata (including `meta_tree` and time-axis fields), so you can still read parameters like FORCE_PLATFORM from a bundle.
+- Bundles preserve key metadata (including `meta_tree`, time-axis fields, residual payload, and unit metadata), so you can still read parameters like FORCE_PLATFORM from a bundle.
 
 Mental model: “pack the decoded tables into a sealed box, then reopen the box next time”.
 
@@ -69,5 +69,7 @@ int st = sqzc3d_load_bundle(bundle_path_or_dir, &chunk);
 Notes:
 
 - Bundles load into a `sqzc3d_chunk_t*`, so you can reuse the same view/query APIs.
+- New bundles use schema version 4 and include `points_residual` plus unit metadata.
+- The loader still accepts schema version 3 bundles; those legacy bundles have `points_residual == NULL` and unknown unit metadata.
 - Bundle metadata (`meta.json`) records `sqzc3d_version` and `sqzc3d_abi_version` to help diagnose compatibility issues.
 - Bundles may optionally contain extra metadata; consumers should use `chunk->reason` / `sqzc3d_last_error_detail(...)` for diagnostics on mismatch.

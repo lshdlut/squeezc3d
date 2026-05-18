@@ -3,7 +3,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -38,6 +37,8 @@ struct c3d {
 
 namespace sqzc3d {
 
+struct C3dReadSource;
+struct C3dParameterTree;
 struct C3dStreamReader;
 
 struct C3dStreamMeta {
@@ -80,21 +81,36 @@ struct C3dStreamMeta {
 };
 
 struct C3dStreamReader {
-  std::fstream file;
-  std::unique_ptr<ezc3d::c3d> c3d;
+  C3dStreamReader();
+  ~C3dStreamReader();
+  C3dStreamReader(const C3dStreamReader&) = delete;
+  C3dStreamReader& operator=(const C3dStreamReader&) = delete;
+
+  std::unique_ptr<C3dReadSource> source;
+  std::unique_ptr<C3dParameterTree> parameter_tree;
   C3dStreamMeta meta{};
   std::vector<std::string> point_labels;
   std::vector<std::string> analog_labels;
   std::vector<std::string> type_group_names;
   std::vector<int> type_group_starts;
   std::vector<int> type_group_indices;
+  std::vector<std::uint8_t> read_scratch;
 };
 
 // Open C3D and retain header/meta/labels.
 sqzc3d_status sqzc3d_c3d_stream_open_file(
     C3dStreamReader* reader,
     const char* file_path);
+sqzc3d_status sqzc3d_c3d_stream_open_memory(
+    C3dStreamReader* reader,
+    const void* data,
+    std::size_t n_bytes);
 void sqzc3d_c3d_stream_close(C3dStreamReader* reader);
+bool sqzc3d_c3d_stream_is_open(const C3dStreamReader* reader);
+sqzc3d_status sqzc3d_c3d_stream_meta_tree_json(
+    const C3dStreamReader* reader,
+    std::int64_t point_frames_override,
+    std::string* out_json);
 
 // Set desired output length unit for subsequent xyz reads.
 // - unit_token: "mm", "cm", "m", "km" (case-insensitive; whitespace ignored)
@@ -128,23 +144,52 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_sel(
     sqzc3d_num_t* out_target,
     int out_nscalar,
     unsigned char* out_valid,
-    int out_valid_nscalar);
+    int out_valid_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
 
-// Read residual for selected point xyz for one frame.
+// Read selected point xyz, valid, and residual for one frame.
+sqzc3d_status sqzc3d_c3d_stream_read_frame_xyz_residual_sel(
+    C3dStreamReader* reader,
+    int frame_idx,
+    const int* point_indices,
+    int n_points_sel,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
+
+// Read residual for selected points for one frame.
 sqzc3d_status sqzc3d_c3d_stream_read_frame_residual_sel(
     C3dStreamReader* reader,
     int frame_idx,
     const int* point_indices,
     int n_points_sel,
     sqzc3d_num_t* out_residual,
-    int out_nscalar);
+    int out_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
 
 // Read all point xyz for one frame; no selection.
 sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz(
     C3dStreamReader* reader,
     int frame_idx,
     sqzc3d_num_t* out_target,
-    int out_nscalar);
+    int out_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
+
+// Read all point xyz, valid, and residual for one frame; no selection.
+sqzc3d_status sqzc3d_c3d_stream_read_frame_all_xyz_residual(
+    C3dStreamReader* reader,
+    int frame_idx,
+    sqzc3d_num_t* out_target,
+    int out_nscalar,
+    unsigned char* out_valid,
+    int out_valid_nscalar,
+    sqzc3d_num_t* out_residual,
+    int out_residual_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
 
 // Read trajectory for selected points: layout frame-major [T x (n_points_sel*3)].
 sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(
@@ -156,7 +201,8 @@ sqzc3d_status sqzc3d_c3d_stream_read_traj_xyz_sel(
     sqzc3d_num_t* out_traj,
     int out_nscalar,
     unsigned char* out_valid,
-    int out_valid_nscalar);
+    int out_valid_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
 
 // Read all selected analog channels for all subframes in one frame:
 // layout [sample0 ch0, sample0 ch1, ... sample1 ch0 ...].
@@ -168,7 +214,8 @@ sqzc3d_status sqzc3d_c3d_stream_read_frame_analogs_sel(
     int start_sample,
     int n_samples,
     sqzc3d_num_t* out_analog,
-    int out_nscalar);
+    int out_nscalar,
+    std::vector<std::uint8_t>* scratch = nullptr);
 
 }  // namespace sqzc3d
 

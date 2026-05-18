@@ -2,17 +2,16 @@
 requires = [
   "scikit-build-core>=0.9.0",
   "pybind11>=2.11.0",
-  "cmake>=3.16",
-  "ninja",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "sqzc3d"
-version = "0.3.4"
+version = "0.4.0"
 description = "Python bindings for the sqzc3d C/C++ library."
 readme = "README.md"
 requires-python = ">=3.9"
+dependencies = ["numpy"]
 license = { file = "LICENSE" }
 authors = [{ name = "sqzc3d contributors" }]
 keywords = ["c3d", "mocap", "biomechanics"]
@@ -32,9 +31,10 @@ classifiers = [
 urls = { Homepage = "https://github.com/lshdlut/squeezc3d", Repository = "https://github.com/lshdlut/squeezc3d" }
 
 [tool.scikit-build]
-cmake.minimum-version = "3.16"
+cmake.version = ">=3.16"
 cmake.build-type = "Release"
 wheel.packages = ["python/sqzc3d"]
+install.components = ["python"]
 cmake.args = [
   "-DSQZC3D_BUILD_PYTHON=ON",
   "-DSQZC3D_WITH_EZC3D=ON",

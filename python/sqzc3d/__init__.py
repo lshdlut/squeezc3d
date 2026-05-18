@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 _core_import_error = None
 
@@ -79,9 +79,12 @@ if _core is not None:
     SQZC3D_FEATURE_BUILD_CHUNKS = _core.SQZC3D_FEATURE_BUILD_CHUNKS
     SQZC3D_FEATURE_BUNDLE = _core.SQZC3D_FEATURE_BUNDLE
     SQZC3D_FEATURE_ANALOG = _core.SQZC3D_FEATURE_ANALOG
+    SQZC3D_FEATURE_POINT_RESIDUAL = _core.SQZC3D_FEATURE_POINT_RESIDUAL
     SQZC3D_LABEL_NORM_EXACT = _core.SQZC3D_LABEL_NORM_EXACT
     SQZC3D_LABEL_NORM_TRIM = _core.SQZC3D_LABEL_NORM_TRIM
     SQZC3D_LABEL_NORM_CASEFOLD_WS = _core.SQZC3D_LABEL_NORM_CASEFOLD_WS
+    SQZC3D_VALID_POLICY_FINITE_XYZ = _core.SQZC3D_VALID_POLICY_FINITE_XYZ
+    SQZC3D_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE = _core.SQZC3D_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE
     __all__ = [
         "Decoder",
         "Chunk",
@@ -111,9 +114,12 @@ if _core is not None:
         "SQZC3D_FEATURE_BUILD_CHUNKS",
         "SQZC3D_FEATURE_BUNDLE",
         "SQZC3D_FEATURE_ANALOG",
+        "SQZC3D_FEATURE_POINT_RESIDUAL",
         "SQZC3D_LABEL_NORM_EXACT",
         "SQZC3D_LABEL_NORM_TRIM",
         "SQZC3D_LABEL_NORM_CASEFOLD_WS",
+        "SQZC3D_VALID_POLICY_FINITE_XYZ",
+        "SQZC3D_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE",
     ]
     if hasattr(_core, "export_bundle"):
         __all__.append("export_bundle")

@@ -233,6 +233,19 @@ class ChunkQuery:
             return self._chunk.points(None, copy=copy)
         return self._chunk.points(mask_to_indices(m), copy=copy)
 
+    def residual(self, *, copy: bool = True):
+        m = self.mask()
+        if self._n_points == 0:
+            return self._chunk.residual([], copy=copy)
+        all_selected = True
+        for v in m:
+            if v == 0:
+                all_selected = False
+                break
+        if all_selected:
+            return self._chunk.residual(None, copy=copy)
+        return self._chunk.residual(mask_to_indices(m), copy=copy)
+
 
 @dataclass(frozen=True)
 class ChunkRecipe:

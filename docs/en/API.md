@@ -1,6 +1,6 @@
 # `sqzc3d` API reference
 
-Applies to `sqzc3d` v0.3.x (ABI `SQZC3D_ABI_VERSION=3`).
+Applies to `sqzc3d` v0.4.x (ABI `SQZC3D_ABI_VERSION=4`).
 
 ## Headers
 
@@ -26,6 +26,8 @@ Applies to `sqzc3d` v0.3.x (ABI `SQZC3D_ABI_VERSION=3`).
 Default behavior notes:
 - Option structs must set `struct_size == sizeof(struct)`; use `sqzc3d_default_*_opt(...)` to initialize.
 - `sqzc3d_default_build_opt(...)` materializes analogs by default (`analog_enable = sqzc3d_ANALOG_EN_ON`).
+- `sqzc3d_build_opt_t::target_unit` optionally converts materialized `chunk->points_xyz` to `mm`, `cm`, `m`,
+  or `km`. `NULL`/empty keeps source units.
 - When `analog_enable = sqzc3d_ANALOG_EN_AUTO`, `sqzc3d_build_chunks` enforces `analog_size_soft_limit_bytes`
   (default `500 MiB`) and fails with `sqzc3d_STATUS_INVALID_ARGUMENT` if the projected analog payload exceeds the limit.
 
@@ -39,8 +41,10 @@ Default behavior notes:
 | `sqzc3d_last_error` / `sqzc3d_last_error_detail` | Retrieve last API error text or structured detail. |
 
 Notes:
-- In `sqzc3d_open_memory`, current implementation materializes to a temporary file first, then reuses `open_file`.
-  Upstream integrations should treat this as API compatibility, not zero-copy yet.
+- `sqzc3d_open_memory` copies the input bytes into decoder-owned memory and reads from that memory source.
+  The caller may release or mutate the input buffer after the call returns. This is not a zero-copy borrowed-buffer API.
+- Decoder and chunk handles are not internally synchronized. Use a given handle from one thread at a time, or guard
+  concurrent API calls with external synchronization.
 - `sqzc3d_last_error(NULL)` and `sqzc3d_last_error_detail(NULL, ...)` report the last error on the current thread.
   This is useful when `sqzc3d_open_file` / `sqzc3d_open_memory` fails before returning a decoder handle.
 
@@ -58,8 +62,30 @@ Notes:
 | `sqzc3d_chunk_meta_tree_json` | Optional `meta_tree` snapshot as UTF-8 JSON (when available). |
 | `sqzc3d_chunk_time_axis` | Optional time-axis metadata (source first/last frame, rates, window origins). |
 | `sqzc3d_point_indices_for_labels` / `sqzc3d_analog_indices_for_labels` | Map labels to indices. |
-| `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` | Build point views by frame or index list. |
+| `sqzc3d_points_view_frames` / `sqzc3d_points_view_points` / `sqzc3d_points_view_frame_points` | Build point views by frame, index list, or selected frame+points. |
 | `sqzc3d_analogs_view_samples` / `sqzc3d_analogs_view_channels` | Build analog views by sample range or channel list. |
+
+Chunk point payload:
+
+- `chunk->points_xyz`: frame-major `[T][P][3]`; converted by `target_unit` when requested.
+- `chunk->points_valid`: frame-major `[T][P]`.
+- `chunk->points_residual`: frame-major `[T][P]`; raw decoded residual in source point units.
+- `chunk->residual_nscalar`: `T * P` when residual storage is available.
+- Unit metadata: `point_units_per_meter`, `target_units_per_meter`, `residual_units_per_meter`,
+  and `point_units_source`.
+
+Residual validity policy:
+
+- Default `sqzc3d_VALID_POLICY_FINITE_XYZ` marks points valid from finite xyz only.
+- `sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE` additionally applies `residual_gate_mm`.
+- `residual_gate_mm` is always expressed in millimeters; sqzc3d converts the threshold to residual source units before comparing.
+- `points_residual` remains readable regardless of valid policy and is never scaled by `target_unit`.
+
+View lifetime:
+
+- `sqzc3d_points_view_t` borrows `sqzc3d_chunk_t` storage; the view must not outlive the source chunk.
+- Non-contiguous point views also borrow the caller-provided `point_indices` array.
+- `sqzc3d_analogs_view_t` follows the same rule for chunk analog storage and caller-provided `channel_indices`.
 
 ## Bundle persistence
 
@@ -81,11 +107,13 @@ In v0.x the default points layout is fixed:
 
 - `points_layout = sqzc3d_POINTS_LAYOUT_FRAME_MAJOR`
 - `points_pack = sqzc3d_POINTS_PACK_AOS_XYZ_VALID`
-- Default easy layer contracts: `PointWindow` is frame-major, AoS XYZ and `valid` is frame-major [T][K].
+- Default easy layer contracts: `PointWindow` is frame-major, AoS XYZ; `valid` and `residual` are frame-major [T][K].
   - `points_xyz_shape = [n_frames][n_points][3]` (contiguous)
   - `points_xyz_stride = [n_points*3, 3, 1]`
   - `points_valid_shape = [n_frames][n_points]` (contiguous)
   - `points_valid_stride = [n_points, 1]`
+  - `points_residual_shape = [n_frames][n_points]` (contiguous)
+  - `points_residual_stride = [n_points, 1]`
 - Default analog layout in v0.x is channel-major `(C, N)`:
   - `analog_shape = [n_analogs][n_frames*n_analog_by_frame]` (contiguous)
   - `analog_stride = [n_frames*n_analog_by_frame, 1]`
@@ -134,14 +162,15 @@ Header-only helpers in `include/sqzc3d_easy.h`:
   - input type: `sqzc3d_FILE`, `sqzc3d_MEMORY`
   - selection mode: indices/labels/all
   - read policy: `AUTO`, `DENSE`, `SPARSE`
-  - valid policy: `sqzc3d_VALID_POLICY_FINITE_XYZ`
+  - valid policy: `sqzc3d_VALID_POLICY_FINITE_XYZ`,
+    `sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE`
 
 ## Notes
 
 - API is C89-compatible (`extern "C"` available for C++).
 - All non-`const` out-parameters are expected writable by caller.
 - Resources allocated by this library must be released with corresponding `free` APIs above.
-- In v0.x, there is no residual/camera-mask public payload; if needed downstream, add via request/extension.
+- Public residual payload is available as raw source-unit decoded residual. Camera masks are not yet public payload.
 
 ## Python API
 
@@ -168,7 +197,7 @@ Recommended for most users.
 
 `read`:
 
-- `sqzc3d.read(source, *, start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, label_norm=..., recipe=None) -> View`
+- `sqzc3d.read(source, *, start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, label_norm=..., recipe=None, target_unit=None) -> View`
 
 Selector semantics (Python):
 
@@ -183,9 +212,11 @@ Selector semantics (Python):
   - `view.type_groups` (`list[str]`)
 - Data (properties):
   - `view.points` / `view.points_valid`
+  - `view.points_residual`
   - `view.analogs` / `view.analogs_valid`
 - Label accessors:
   - `view.point["LANK"]` / `view.point_valid["LANK"]`
+  - `view.point_residual["LANK"]`
   - `view.analog["EMG1"]` / `view.analog_valid["EMG1"]`
 - Metadata:
   - `view.meta` (flat dict)
@@ -200,7 +231,7 @@ Notes:
 `Decoder`:
 
 - `Decoder(path, label_norm=sqzc3d.SQZC3D_LABEL_NORM_EXACT)`
-- `Decoder.read(start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None)`
+- `Decoder.read(start_frame=0, frame_count=-1, points=None, analogs=None, analog_range=None, target_unit="")`
 - `Decoder.close()`
 - `Decoder.source_path` (read-only)
 - `Decoder.closed` (read-only bool)
@@ -208,6 +239,7 @@ Notes:
 `Chunk`:
 
 - `chunk.points(selector=None, copy=True) -> (values, valid)`
+- `chunk.residual(selector=None, copy=True) -> residual`
 - `chunk.analogs(selector=None, layout="CN", copy=True) -> (values, valid)`
   - `layout="tcs"` returns a non-contiguous frame-major view `(T, C, S)` over channel-major storage.
 - `chunk.meta` (dict)
@@ -217,6 +249,7 @@ Notes:
 Python payload semantics:
 
 - `points` values: `float64`, default frame-major shape `(T, P, 3)`, valid mask `(T, P)` with dtype `uint8`.
+- `residual` values: `float64`, default frame-major shape `(T, P)`, source point units.
 - `analogs` values:
   - `layout="CN"` default: `(C, N)` where `N = n_frames * n_analog_by_frame`
   - `layout="tcs"`: `(T, C, S)` non-contiguous view helper
