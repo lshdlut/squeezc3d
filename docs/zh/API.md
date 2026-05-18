@@ -43,8 +43,10 @@
 
 备注：
 
-- 当前 `sqzc3d_open_memory` 的实现会先 materialize 到临时文件，再复用 `open_file`。
-  上游集成应将其视作 API 兼容性（目前并非真正 zero-copy）。
+- `sqzc3d_open_memory` 会把输入 bytes 复制到 decoder 自己持有的内存源中读取。
+  调用返回后，caller 可以释放或修改原始 buffer；这不是 zero-copy borrowed-buffer API。
+- Decoder 与 chunk handle 内部不做同步。同一个 handle 应一次只在一个线程中使用；如需并发调用，
+  由 caller 在外层加锁。
 - `sqzc3d_last_error(NULL)` 与 `sqzc3d_last_error_detail(NULL, ...)` 会返回当前线程的最近一次错误。
   这对 `sqzc3d_open_file` / `sqzc3d_open_memory` 在返回 decoder handle 之前就失败的情况非常有用。
 
@@ -80,6 +82,12 @@ Residual validity policy：
 - `sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE` 会额外应用 `residual_gate_mm`。
 - `residual_gate_mm` 永远以 millimeters 表示；sqzc3d 内部会换算到 residual source units 后比较。
 - `points_residual` 始终可读，不受 valid policy 影响，也不会随 `target_unit` 缩放。
+
+View lifetime：
+
+- `sqzc3d_points_view_t` 借用 `sqzc3d_chunk_t` 的 point storage；view 不可超过 source chunk 生命周期。
+- 非连续 point view 还会借用 caller 传入的 `point_indices` 数组。
+- `sqzc3d_analogs_view_t` 对 chunk analog storage 和 caller 传入的 `channel_indices` 数组遵循同样规则。
 
 ## Bundle 持久化
 

@@ -1005,9 +1005,9 @@ PYBIND11_MODULE(_core, m) {
       py::arg("chunk"));
 
   py::class_<PyDecoder>(m, "Decoder")
-      .def(py::init<const std::string&, int>(), py::arg("source_path"),
-           py::arg("label_norm") = static_cast<int>(sqzc3d_LABEL_NORM_EXACT))
       .def(py::init<py::buffer, int>(), py::arg("data"),
+           py::arg("label_norm") = static_cast<int>(sqzc3d_LABEL_NORM_EXACT))
+      .def(py::init<const std::string&, int>(), py::arg("source_path").noconvert(),
            py::arg("label_norm") = static_cast<int>(sqzc3d_LABEL_NORM_EXACT))
       .def("read",
            &PyDecoder::read,

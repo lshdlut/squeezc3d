@@ -4,8 +4,6 @@
 #include "sqzc3d_error_internal.h"
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cctype>
@@ -38,22 +36,11 @@ static std::string normalize_extension(std::string ext) {
   return ext;
 }
 
-static std::filesystem::path make_unique_tmp_c3d_path(const std::filesystem::path& dir) {
-  static std::atomic<std::uint64_t> seq{0};
-  const std::uint64_t now =
-      static_cast<std::uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-  const std::uint64_t id = seq.fetch_add(1, std::memory_order_relaxed);
-  std::ostringstream name;
-  name << "sqzc3d_mem_" << std::hex << now << "_" << std::dec << id << ".c3d";
-  return dir / name.str();
-}
-
 struct sqzc3dDec {
   using ErrorDetail = sqzc3d::internal::ErrorDetail;
 
   std::unique_ptr<C3dStreamReader> reader;
   std::string last_error;
-  std::string temp_path;
   ErrorDetail last_error_detail;
   int label_norm = sqzc3d_LABEL_NORM_EXACT;
 };
@@ -230,113 +217,6 @@ static std::string json_escape(const std::string& text) {
   }
   return out;
 }
-
-#if sqzc3d_WITH_EZC3D
-static void json_write_quoted(std::ostream& out, const std::string& text) {
-  out << "\"" << json_escape(text) << "\"";
-}
-
-static void json_write_bool(std::ostream& out, bool value) {
-  out << (value ? "true" : "false");
-}
-
-static void json_write_size_t_list(std::ostream& out, const std::vector<std::size_t>& values) {
-  out << "[";
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i) out << ",";
-    out << static_cast<unsigned long long>(values[i]);
-  }
-  out << "]";
-}
-
-template <typename T>
-static void json_write_numeric_list(std::ostream& out, const std::vector<T>& values) {
-  out << "[";
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i) out << ",";
-    out << values[i];
-  }
-  out << "]";
-}
-
-static void json_write_string_list(std::ostream& out, const std::vector<std::string>& values) {
-  out << "[";
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i) out << ",";
-    json_write_quoted(out, values[i]);
-  }
-  out << "]";
-}
-
-static std::string build_meta_tree_json(
-    const ezc3d::ParametersNS::Parameters& parameters,
-    const std::int64_t point_frames_override) {
-  std::ostringstream out;
-  out << std::fixed << std::setprecision(std::numeric_limits<double>::max_digits10);
-  out << "{";
-  out << "\"groups\":{";
-  bool first_group = true;
-  for (const auto& group : parameters.groups()) {
-    if (!first_group) out << ",";
-    first_group = false;
-
-    const std::string& group_name = group.name();
-    json_write_quoted(out, group_name);
-    out << ":{";
-    out << "\"name\":";
-    json_write_quoted(out, group_name);
-    out << ",\"description\":";
-    json_write_quoted(out, group.description());
-    out << ",\"locked\":";
-    json_write_bool(out, group.isLocked());
-    out << ",\"parameters\":{";
-
-    bool first_param = true;
-    for (const auto& parameter : group.parameters()) {
-      if (!first_param) out << ",";
-      first_param = false;
-
-      const std::string& param_name = parameter.name();
-      json_write_quoted(out, param_name);
-      out << ":{";
-      out << "\"name\":";
-      json_write_quoted(out, param_name);
-      out << ",\"description\":";
-      json_write_quoted(out, parameter.description());
-      out << ",\"locked\":";
-      json_write_bool(out, parameter.isLocked());
-      out << ",\"type\":" << static_cast<int>(parameter.type());
-      out << ",\"dimensions\":";
-      json_write_size_t_list(out, parameter.dimension());
-      out << ",\"values\":";
-
-      const auto type = parameter.type();
-      if (type == ezc3d::DATA_TYPE::CHAR) {
-        json_write_string_list(out, parameter.valuesAsString());
-      } else if (type == ezc3d::DATA_TYPE::FLOAT) {
-        std::vector<double> values = parameter.valuesAsDouble();
-        if (group_name == "POINT" && param_name == "FRAMES" && point_frames_override > 0) {
-          values.assign(1u, static_cast<double>(point_frames_override));
-        }
-        json_write_numeric_list(out, values);
-      } else {
-        std::vector<int> values = parameter.valuesConvertedAsInt();
-        if (group_name == "POINT" && param_name == "FRAMES" && point_frames_override > 0) {
-          values.assign(1u, static_cast<int>(point_frames_override));
-        }
-        json_write_numeric_list(out, values);
-      }
-      out << "}";
-    }
-
-    out << "}";
-    out << "}";
-  }
-  out << "}";
-  out << "}";
-  return out.str();
-}
-#endif
 
 static const char* points_layout_name(int value) {
   return (value == sqzc3d_POINTS_LAYOUT_FRAME_MAJOR) ? "frame_major" : "unknown";
@@ -968,7 +848,7 @@ static bool read_section_data(
   return true;
 }
 
-[[maybe_unused]] static void set_error(
+static void set_error(
     sqzc3d_dec_t* dec,
     int status,
     const std::string& message,
@@ -1512,113 +1392,57 @@ sqzc3d_API int sqzc3d_open_memory(
     opt_v = *opt;
   }
 
-  std::filesystem::path tmp_path;
+  auto* dec_raw = new (std::nothrow) sqzc3d_dec_t{};
+  if (!dec_raw) return sqzc3d_STATUS_INTERNAL_ERROR;
+  std::unique_ptr<sqzc3d_dec_t> dec(dec_raw);
   try {
-    const auto* bytes = static_cast<const char*>(data);
-    std::error_code ec;
-    const auto tmp_dir = std::filesystem::temp_directory_path(ec);
-    if (ec || tmp_dir.empty()) {
-      set_error(nullptr,
-                sqzc3d_STATUS_INVALID_ARGUMENT,
-                std::string("open_memory: temp_directory_path failed: ") +
-                    (ec ? ec.message() : std::string("invalid temp path")),
-                "sqzc3d_open_memory");
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
-    }
-    if (!std::filesystem::exists(tmp_dir, ec)) {
-      set_error(nullptr,
-                sqzc3d_STATUS_INVALID_ARGUMENT,
-                "open_memory: temp directory does not exist",
-                "sqzc3d_open_memory");
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
-    }
-
-    bool temp_written = false;
-    for (int attempt = 0; attempt < 32; ++attempt) {
-      tmp_path = make_unique_tmp_c3d_path(tmp_dir);
-      if (std::filesystem::exists(tmp_path, ec)) continue;
-
-      std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
-      if (!ofs) {
-        continue;
-      }
-      ofs.write(bytes, static_cast<std::streamsize>(n_bytes));
-      if (!ofs.good()) {
-        std::filesystem::remove(tmp_path, ec);
-        tmp_path.clear();
-        continue;
-      }
-      ofs.close();
-      temp_written = true;
-      break;
-    }
-    if (!temp_written) {
-      set_error(nullptr,
-                sqzc3d_STATUS_INVALID_ARGUMENT,
-                "open_memory: failed to create/write temp file",
-                "sqzc3d_open_memory");
-      return sqzc3d_STATUS_INVALID_ARGUMENT;
-    }
-
-    sqzc3d_open_opt_t open_file_opt = *opt_in;
-    open_file_opt.open_mode = sqzc3d_FILE;
-    const int st = sqzc3d_open_file(out_dec, tmp_path.string().c_str(), &open_file_opt);
-    if (st != sqzc3d_STATUS_SUCCESS) {
-      const char* open_file_error = sqzc3d_last_error(nullptr);
-      std::string err_msg = std::string("open_memory: open_file failed, path=") + tmp_path.string();
-      if (open_file_error && *open_file_error) {
-        err_msg += "; reason=" + std::string(open_file_error);
-      }
-      set_error(nullptr, st, err_msg, "sqzc3d_open_memory");
-      std::error_code ec_rm;
-      std::filesystem::remove(tmp_path, ec_rm);
-      tmp_path.clear();
-      return st;
-    }
-    auto* impl = static_cast<sqzc3dDec*>((*out_dec)->impl);
-    impl->temp_path = tmp_path.string();
+    dec->impl = nullptr;
+    dec->last_error = kArgError;
+    auto impl = std::make_unique<sqzc3dDec>();
+    impl->reader = std::make_unique<C3dStreamReader>();
     const int label_norm = (opt_in->label_norm > 0)
                               ? (opt_in->label_norm & (sqzc3d_LABEL_NORM_EXACT |
                                                        sqzc3d_LABEL_NORM_TRIM |
                                                        sqzc3d_LABEL_NORM_CASEFOLD_WS))
                               : sqzc3d_LABEL_NORM_EXACT;
     impl->label_norm = label_norm;
+    if (opt_in->open_mode != sqzc3d_FILE && opt_in->open_mode != sqzc3d_MEMORY) {
+      set_error(dec.get(), sqzc3d_STATUS_INVALID_ARGUMENT, "open_memory called with invalid open_mode", "sqzc3d_open_memory");
+      return sqzc3d_STATUS_INVALID_ARGUMENT;
+    }
+    const int open_st = sqzc3d::sqzc3d_c3d_stream_open_memory(
+        impl->reader.get(), data, static_cast<std::size_t>(n_bytes));
+    if (open_st != sqzc3d_STATUS_SUCCESS) {
+      const char* reason = sqzc3d_last_error(nullptr);
+      std::string msg = "failed to open c3d memory buffer";
+      if (reason && *reason && std::string(reason) != kInvalidDecoderError) {
+        msg += "; reason=" + std::string(reason);
+      }
+      set_error(dec.get(), open_st, msg, "sqzc3d_open_memory");
+      return open_st;
+    }
+    dec->impl = impl.release();
+    if (opt_in->cache_labels == 0) {
+      auto* impl_out = static_cast<sqzc3dDec*>(dec->impl);
+      if (impl_out && impl_out->reader) {
+        impl_out->reader->point_labels.clear();
+        impl_out->reader->analog_labels.clear();
+      }
+    }
+    reset_error(dec.get());
+    *out_dec = dec.release();
     return sqzc3d_STATUS_SUCCESS;
   } catch (const std::bad_alloc&) {
-    if (out_dec && *out_dec) {
-      sqzc3d_close_dec(*out_dec);
-      *out_dec = nullptr;
-    }
-    if (!tmp_path.empty()) {
-      std::error_code ec_rm;
-      std::filesystem::remove(tmp_path, ec_rm);
-    }
-    set_error(nullptr, sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: bad_alloc", "sqzc3d_open_memory");
+    set_error(dec.get(), sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: bad_alloc", "sqzc3d_open_memory");
     return sqzc3d_STATUS_INTERNAL_ERROR;
   } catch (const std::exception& e) {
-    if (out_dec && *out_dec) {
-      sqzc3d_close_dec(*out_dec);
-      *out_dec = nullptr;
-    }
-    if (!tmp_path.empty()) {
-      std::error_code ec_rm;
-      std::filesystem::remove(tmp_path, ec_rm);
-    }
-    set_error(nullptr,
+    set_error(dec.get(),
               sqzc3d_STATUS_INTERNAL_ERROR,
               std::string("open_memory: exception: ") + e.what(),
               "sqzc3d_open_memory");
     return sqzc3d_STATUS_INTERNAL_ERROR;
   } catch (...) {
-    if (out_dec && *out_dec) {
-      sqzc3d_close_dec(*out_dec);
-      *out_dec = nullptr;
-    }
-    if (!tmp_path.empty()) {
-      std::error_code ec_rm;
-      std::filesystem::remove(tmp_path, ec_rm);
-    }
-    set_error(nullptr, sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: unknown exception", "sqzc3d_open_memory");
+    set_error(dec.get(), sqzc3d_STATUS_INTERNAL_ERROR, "open_memory: unknown exception", "sqzc3d_open_memory");
     return sqzc3d_STATUS_INTERNAL_ERROR;
   }
 }
@@ -1627,11 +1451,6 @@ sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec) {
   if (!dec) return sqzc3d_STATUS_SUCCESS;
   auto* impl = static_cast<sqzc3dDec*>(dec->impl);
   if (impl) {
-    if (!impl->temp_path.empty()) {
-      std::error_code ec;
-      std::filesystem::remove(impl->temp_path, ec);
-      impl->temp_path.clear();
-    }
     if (impl->reader) sqzc3d::sqzc3d_c3d_stream_close(impl->reader.get());
     delete impl;
   }
@@ -1669,7 +1488,7 @@ sqzc3d_API int sqzc3d_build_chunks(
     return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "build_chunks: invalid build option struct");
   }
   const auto* dec_impl = static_cast<const sqzc3dDec*>(dec->impl);
-  if (!dec_impl || !dec_impl->reader || !dec_impl->reader->c3d) {
+  if (!dec_impl || !dec_impl->reader || !sqzc3d::sqzc3d_c3d_stream_is_open(dec_impl->reader.get())) {
     return ctx.fail(sqzc3d_STATUS_INVALID_ARGUMENT, "build_chunks: invalid decoder");
   }
   if (!valid_policy_supported(opt->valid_policy)) {
@@ -1797,8 +1616,9 @@ sqzc3d_API int sqzc3d_build_chunks(
 
   chunk_impl->point_labels_storage.reserve(point_indices.size());
   for (int idx : point_indices) {
-    if (idx >= 0 && idx < static_cast<int>(dec_impl->reader->point_labels.size())) {
-      chunk_impl->point_labels_storage.push_back(dec_impl->reader->point_labels[static_cast<std::size_t>(idx)]);
+    const auto idxu = static_cast<std::size_t>(idx);
+    if (idxu < dec_impl->reader->point_labels.size()) {
+      chunk_impl->point_labels_storage.push_back(dec_impl->reader->point_labels[idxu]);
     } else {
       chunk_impl->point_labels_storage.push_back(std::string());
     }
@@ -1814,8 +1634,11 @@ sqzc3d_API int sqzc3d_build_chunks(
     chunk_impl->n_analogs = static_cast<int>(analog_indices.size());
     chunk_impl->analog_labels_storage.reserve(analog_indices.size());
     for (int idx : analog_indices) {
-      if (idx >= 0 && idx < static_cast<int>(dec_impl->reader->analog_labels.size())) {
-        chunk_impl->analog_labels_storage.push_back(dec_impl->reader->analog_labels[static_cast<std::size_t>(idx)]);
+      const auto idxu = static_cast<std::size_t>(idx);
+      if (idxu < dec_impl->reader->analog_labels.size()) {
+        chunk_impl->analog_labels_storage.push_back(dec_impl->reader->analog_labels[idxu]);
+      } else {
+        chunk_impl->analog_labels_storage.push_back(std::string());
       }
     }
     if (!chunk_impl->analog_labels_storage.empty()) {
@@ -1920,6 +1743,7 @@ sqzc3d_API int sqzc3d_build_chunks(
     dense_valid.resize(static_cast<std::size_t>(chunk_impl->n_points_total));
     dense_residual.resize(static_cast<std::size_t>(chunk_impl->n_points_total));
   }
+  std::vector<std::uint8_t> point_read_scratch;
 
   for (int fi = 0; fi < chunk_impl->n_frames; ++fi) {
     const int f = frame_start + fi;
@@ -1941,7 +1765,8 @@ sqzc3d_API int sqzc3d_build_chunks(
             valid,
             chunk_impl->n_points,
             residual,
-            chunk_impl->n_points);
+            chunk_impl->n_points,
+            &point_read_scratch);
       } else {
         st = sqzc3d::sqzc3d_c3d_stream_read_frame_all_xyz_residual(
             dec_impl->reader.get(),
@@ -1951,7 +1776,8 @@ sqzc3d_API int sqzc3d_build_chunks(
             dense_valid.data(),
             chunk_impl->n_points_total,
             dense_residual.data(),
-            chunk_impl->n_points_total);
+            chunk_impl->n_points_total,
+            &point_read_scratch);
         if (st == sqzc3d_STATUS_SUCCESS) {
           for (int p = 0; p < chunk_impl->n_points; ++p) {
             const auto dst = static_cast<std::size_t>(p);
@@ -1975,7 +1801,8 @@ sqzc3d_API int sqzc3d_build_chunks(
           valid,
           chunk_impl->n_points,
           residual,
-          chunk_impl->n_points);
+          chunk_impl->n_points,
+          &point_read_scratch);
     }
     if (st != sqzc3d_STATUS_SUCCESS) {
       const char* reason = sqzc3d_last_error(nullptr);
@@ -2006,6 +1833,7 @@ sqzc3d_API int sqzc3d_build_chunks(
     chunk_impl->analog_valid_storage.assign(total_scalar, 0u);
     chunk_impl->n_analog_scalar = static_cast<int>(chunk_impl->analog_storage.size());
     std::vector<sqzc3d_num_t> analog_frame(static_cast<std::size_t>(analog_sample_count), 0.0);
+    std::vector<std::uint8_t> analog_read_scratch;
     const int analog_frames = (analog_range_count < chunk_impl->n_frames) ? analog_range_count : chunk_impl->n_frames;
     for (int fi = 0; fi < chunk_impl->n_frames; ++fi) {
       if (fi >= analog_frames) {
@@ -2020,7 +1848,8 @@ sqzc3d_API int sqzc3d_build_chunks(
           0,
           meta.n_analog_by_frame,
           analog_frame.data(),
-          analog_sample_count);
+          analog_sample_count,
+          &analog_read_scratch);
       if (st != sqzc3d_STATUS_SUCCESS) {
         const char* reason = sqzc3d_last_error(nullptr);
         std::string msg = "read frame analog data failed";
@@ -2048,21 +1877,23 @@ sqzc3d_API int sqzc3d_build_chunks(
   }
 
   // Snapshot the parameter tree (meta_tree) into the chunk so it can survive:
-  // - open_memory (temp-file path not exposed to the caller),
+  // - open_memory (decoder-owned byte source, no caller path),
   // - bundle export/load roundtrips,
   // - dec lifetime (chunk may outlive the decoder).
 #if sqzc3d_WITH_EZC3D
-  try {
-    if (dec_impl->reader && dec_impl->reader->c3d) {
-      chunk_impl->meta_tree_json =
-          build_meta_tree_json(dec_impl->reader->c3d->parameters(), static_cast<std::int64_t>(chunk_impl->n_frames));
+  {
+    std::string meta_tree_json;
+    const int meta_tree_status = sqzc3d::sqzc3d_c3d_stream_meta_tree_json(
+        dec_impl->reader.get(), static_cast<std::int64_t>(chunk_impl->n_frames), &meta_tree_json);
+    if (meta_tree_status != sqzc3d_STATUS_SUCCESS) {
+      const char* reason = sqzc3d_last_error(nullptr);
+      std::string msg = "build_chunks: failed to snapshot meta_tree";
+      if (reason && *reason && std::string(reason) != kInvalidDecoderError) {
+        msg += "; reason=" + std::string(reason);
+      }
+      return ctx.fail(meta_tree_status, msg);
     }
-  } catch (const std::exception& e) {
-    if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
-    chunk_impl->reason += std::string("meta_tree snapshot failed: ") + e.what();
-  } catch (...) {
-    if (!chunk_impl->reason.empty()) chunk_impl->reason += "; ";
-    chunk_impl->reason += "meta_tree snapshot failed: unknown exception";
+    chunk_impl->meta_tree_json = std::move(meta_tree_json);
   }
 #endif
 
@@ -2464,7 +2295,15 @@ sqzc3d_API int sqzc3d_load_bundle_with_options(
     data_path = input_path / "data.bin";
     std::ifstream meta_in(meta_path, std::ios::binary);
     if (!meta_in.good()) return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "load_bundle: meta.json open failed");
-    meta_text.assign((std::istreambuf_iterator<char>(meta_in)), std::istreambuf_iterator<char>());
+    meta_in.seekg(0, std::ios::end);
+    const auto meta_end = meta_in.tellg();
+    if (meta_end < 0) return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "load_bundle: meta.json size failed");
+    meta_text.resize(static_cast<std::size_t>(meta_end));
+    meta_in.seekg(0, std::ios::beg);
+    if (!meta_text.empty()) {
+      meta_in.read(meta_text.data(), static_cast<std::streamsize>(meta_text.size()));
+      if (!meta_in.good()) return fail(sqzc3d_STATUS_INVALID_ARGUMENT, "load_bundle: meta.json read failed");
+    }
   } else if (fs::is_regular_file(input_path)) {
     const auto ext = normalize_extension(input_path.extension().string());
     if (ext != ".sqzc3d") {

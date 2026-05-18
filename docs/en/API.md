@@ -41,8 +41,10 @@ Default behavior notes:
 | `sqzc3d_last_error` / `sqzc3d_last_error_detail` | Retrieve last API error text or structured detail. |
 
 Notes:
-- In `sqzc3d_open_memory`, current implementation materializes to a temporary file first, then reuses `open_file`.
-  Upstream integrations should treat this as API compatibility, not zero-copy yet.
+- `sqzc3d_open_memory` copies the input bytes into decoder-owned memory and reads from that memory source.
+  The caller may release or mutate the input buffer after the call returns. This is not a zero-copy borrowed-buffer API.
+- Decoder and chunk handles are not internally synchronized. Use a given handle from one thread at a time, or guard
+  concurrent API calls with external synchronization.
 - `sqzc3d_last_error(NULL)` and `sqzc3d_last_error_detail(NULL, ...)` report the last error on the current thread.
   This is useful when `sqzc3d_open_file` / `sqzc3d_open_memory` fails before returning a decoder handle.
 
@@ -78,6 +80,12 @@ Residual validity policy:
 - `sqzc3d_VALID_POLICY_FINITE_XYZ_AND_RESIDUAL_GATE` additionally applies `residual_gate_mm`.
 - `residual_gate_mm` is always expressed in millimeters; sqzc3d converts the threshold to residual source units before comparing.
 - `points_residual` remains readable regardless of valid policy and is never scaled by `target_unit`.
+
+View lifetime:
+
+- `sqzc3d_points_view_t` borrows `sqzc3d_chunk_t` storage; the view must not outlive the source chunk.
+- Non-contiguous point views also borrow the caller-provided `point_indices` array.
+- `sqzc3d_analogs_view_t` follows the same rule for chunk analog storage and caller-provided `channel_indices`.
 
 ## Bundle persistence
 

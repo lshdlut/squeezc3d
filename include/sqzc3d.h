@@ -225,6 +225,9 @@ typedef struct sqzc3d_time_axis_t_ {
   int analog_frame_start;
 } sqzc3d_time_axis_t;
 
+// Borrowed view over sqzc3d_chunk_t point storage. The xyz/valid/residual pointers remain valid
+// only while the source chunk is alive. For gather views, point_indices is the caller-provided
+// array and must outlive any use of the view.
 typedef struct sqzc3d_points_view_t_ {
   const sqzc3d_num_t* points_xyz;
   const unsigned char* points_valid;
@@ -239,6 +242,9 @@ typedef struct sqzc3d_points_view_t_ {
   const int* point_indices;
 } sqzc3d_points_view_t;
 
+// Borrowed view over sqzc3d_chunk_t analog storage. The analog pointers remain valid only while
+// the source chunk is alive. For gather views, channel_indices is the caller-provided array and
+// must outlive any use of the view.
 typedef struct sqzc3d_analogs_view_t_ {
   const sqzc3d_num_t* analog;
   const unsigned char* analog_valid;
@@ -271,6 +277,9 @@ sqzc3d_API int sqzc3d_open_memory(
     int n_bytes,
     const sqzc3d_open_opt_t* opt);
 sqzc3d_API int sqzc3d_close_dec(sqzc3d_dec_t* dec);
+
+// Decoder and chunk handles are not internally synchronized. Use a given decoder/chunk from
+// one thread at a time, or provide external synchronization around concurrent API calls.
 
 // Get the last error message.
 // If `dec` is NULL, returns the last error for the current thread (useful for open failures with no handle).
